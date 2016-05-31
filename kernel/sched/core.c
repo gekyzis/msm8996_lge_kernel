@@ -3297,6 +3297,8 @@ void sched_get_cpus_busy(struct sched_load *busy,
 	u64 max_prev_sum = 0;
 	int max_busy_cpu = cpumask_first(query_cpus);
 	struct related_thread_group *grp;
+	u64 total_group_load = 0, total_ngload = 0;
+	bool aggregate_load = false;
 
 	if (unlikely(cpus == 0))
 		return;
@@ -3348,6 +3350,14 @@ void sched_get_cpus_busy(struct sched_load *busy,
 		}
 	}
 
+	if (!notifier_sent[max_busy_cpu]) {
+		group_load_in_freq_domain(
+				&cpu_rq(max_busy_cpu)->freq_domain_cpumask,
+				&total_group_load, &total_ngload);
+		if (total_group_load > sched_freq_aggregate_threshold)
+			aggregate_load = true;
+	}
+
 	i = 0;
 	for_each_cpu(cpu, query_cpus) {
 		group_load[i] = 0;
@@ -3357,11 +3367,11 @@ void sched_get_cpus_busy(struct sched_load *busy,
 			goto skip_early;
 
 		rq = cpu_rq(cpu);
-		if (!notifier_sent[i]) {
-			if (cpu == max_busy_cpu)
-				group_load_in_freq_domain(
-					&rq->freq_domain_cpumask,
-					&group_load[i], &ngload[i]);
+		if (!notifier_sent[i] && aggregate_load) {
+			if (cpu == max_busy_cpu) {
+				group_load[i] = total_group_load;
+				ngload[i] = total_ngload;
+			}
 		} else {
 			_group_load_in_cpu(cpu, &group_load[i], &ngload[i]);
 		}
@@ -3398,7 +3408,19 @@ skip_early:
 			goto exit_early;
 		}
 
-		if (!notifier_sent[i]) {
+		/*
+		 * When the load aggregation is controlled by
+		 * sched_freq_aggregate_threshold, allow reporting loads
+		 * greater than 100 @ Fcur to ramp up the frequency
+		 * faster.
+		 */
+		if (notifier_sent[i] || (aggregate_load &&
+					sched_freq_aggregate_threshold)) {
+			load[i] = scale_load_to_freq(load[i], max_freq[i],
+						    cpu_max_possible_freq(cpu));
+			nload[i] = scale_load_to_freq(nload[i], max_freq[i],
+						    cpu_max_possible_freq(cpu));
+		} else {
 			load[i] = scale_load_to_freq(load[i], max_freq[i],
 						     cur_freq[i]);
 			nload[i] = scale_load_to_freq(nload[i], max_freq[i],
@@ -3411,11 +3433,6 @@ skip_early:
 			load[i] = scale_load_to_freq(load[i], cur_freq[i],
 						    cpu_max_possible_freq(cpu));
 			nload[i] = scale_load_to_freq(nload[i], cur_freq[i],
-						    cpu_max_possible_freq(cpu));
-		} else {
-			load[i] = scale_load_to_freq(load[i], max_freq[i],
-						    cpu_max_possible_freq(cpu));
-			nload[i] = scale_load_to_freq(nload[i], max_freq[i],
 						    cpu_max_possible_freq(cpu));
 		}
 		pload[i] = scale_load_to_freq(pload[i], max_freq[i],

@@ -107,5 +107,4 @@ tools/gator/daemon/events_xml.h
 /build/
 
 # Test files
-build-test.sh
 arch/arm64/configs/lge_defconfig-test

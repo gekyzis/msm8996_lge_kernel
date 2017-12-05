@@ -2571,7 +2571,6 @@ static int dwc3_cleanup_done_reqs(struct dwc3 *dwc, struct dwc3_ep *dep,
 			trb = &dep->trb_pool[slot];
 			count += trb->size & DWC3_TRB_SIZE_MASK;
 
-
 			if (req->request.num_mapped_sgs)
 				trb_len = sg_dma_len(&req->request.sg[i]);
 			else
@@ -2582,6 +2581,18 @@ static int dwc3_cleanup_done_reqs(struct dwc3 *dwc, struct dwc3_ep *dep,
 			if (ret)
 				break;
 		}while (++i < req->request.num_mapped_sgs);
+
+		if (req->ztrb) {
+			trb = req->ztrb;
+			if ((event->status & DEPEVT_STATUS_LST) &&
+				(trb->ctrl & (DWC3_TRB_CTRL_LST |
+					DWC3_TRB_CTRL_HWO)))
+				ret = 1;
+
+			if ((event->status & DEPEVT_STATUS_IOC) &&
+					(trb->ctrl & DWC3_TRB_CTRL_IOC))
+				ret = 1;
+		}
 
 		/*
 		 * We assume here we will always receive the entire data block

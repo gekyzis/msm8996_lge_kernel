@@ -108,3 +108,4 @@ tools/gator/daemon/events_xml.h
 
 # Test files
 arch/arm64/configs/lge_defconfig-test
+arch/arm64/configs/lge_defconfig-bak

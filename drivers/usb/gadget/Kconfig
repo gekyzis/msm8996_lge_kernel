@@ -594,6 +594,12 @@ config LGE_USB_TYPE_C
 	  Say Y here to add support for USB Type-C.
 
 config LGE_USB_MAXIM_EVP
-       boolean "EVP charger support"
+	boolean "EVP charger support"
+
+config USB_EXT_OUTPUT
+	boolean "Host functions as external HID device"
+	help
+	  This driver will enable your phone to act as a keyboard
+	  and mouse.
 
 endif # USB_GADGET

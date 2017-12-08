@@ -85,9 +85,11 @@
 #include "u_qc_ether.c"
 #include "f_gsi.c"
 #include "f_mass_storage.h"
+#ifdef CONFIG_USB_EXT_OUTPUT
 #include "f_hid.h"
 #include "f_hid_android_keyboard.c"
 #include "f_hid_android_mouse.c"
+#endif
 
 USB_ETHERNET_MODULE_PARAMETERS();
 #include "debug.h"
@@ -3640,6 +3642,7 @@ static DEVICE_ATTR(evp_setting_voltage, S_IRUGO, evp_setting_voltage_show, NULL)
 static DEVICE_ATTR(evp_status, S_IRUGO, evp_status_check, NULL);
 #endif
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 static int hid_function_init(struct android_usb_function *f, struct usb_composite_dev *cdev)
 {
 	return ghid_setup(cdev->gadget, 2);
@@ -3674,6 +3677,7 @@ static struct android_usb_function hid_function = {
 	.cleanup	= hid_function_cleanup,
 	.bind_config	= hid_function_bind_config,
 };
+#endif
 
 static int rndis_gsi_function_init(struct android_usb_function *f,
 					struct usb_composite_dev *cdev)
@@ -3843,7 +3847,9 @@ static struct android_usb_function *supported_functions[] = {
 #ifdef CONFIG_SND_RAWMIDI
 	[ANDROID_MIDI] = &midi_function,
 #endif
+#ifdef CONFIG_USB_EXT_OUTPUT
 	[ANDROID_HID] = &hid_function,
+#endif
 	[ANDROID_RNDIS_GSI] = &rndis_gsi_function,
 	[ANDROID_ECM_GSI] = &ecm_gsi_function,
 	[ANDROID_RMNET_GSI] = &rmnet_gsi_function,
@@ -3891,7 +3897,9 @@ static struct android_usb_function *default_functions[] = {
 #ifdef CONFIG_LGE_USB_MAXIM_EVP
 	&evp_function,
 #endif
+#ifdef CONFIG_USB_EXT_OUTPUT
 	&hid_function,
+#endif
 	NULL
 };
 
@@ -4180,8 +4188,12 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 	char buf[256], *b;
 	char aliases[256], *a;
 	int err;
-	int ffs_enabled = 0;
+#ifndef CONFIG_USB_EXT_OUTPUT
+	int is_ffs;
+#else
 	int hid_enabled = 0;
+#endif
+	int ffs_enabled = 0;
 
 	mutex_lock(&dev->mutex);
 
@@ -4237,27 +4249,50 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		curr_conf = curr_conf->next;
 		while (conf_str) {
 			name = strsep(&conf_str, ",");
+#ifndef CONFIG_USB_EXT_OUTPUT
+			is_ffs = 0;
+#endif
 			strlcpy(aliases, dev->ffs_aliases, sizeof(aliases));
 			a = aliases;
 
 			while (a) {
 				char *alias = strsep(&a, ",");
 				if (alias && !strcmp(name, alias)) {
+#ifndef CONFIG_USB_EXT_OUTPUT
+					is_ffs = 1;
+#else
 					name = "ffs";
+#endif
 					break;
 				}
 			}
 
+#ifndef CONFIG_USB_EXT_OUTPUT
+			if (is_ffs) {
+				if (ffs_enabled)
+					continue;
+				err = android_enable_function(dev, conf, "ffs");
+				if (err)
+					pr_err("android_usb: Cannot enable ffs (%d)",
+									err);
+				else
+					ffs_enabled = 1;
+#else
 			if (ffs_enabled && !strcmp(name, "ffs"))
 				continue;
 
 			if (hid_enabled && !strcmp(name, "hid"))
+#endif
 				continue;
+#ifndef CONFIG_USB_EXT_OUTPUT
+			}
+#endif
 
 			if (!strcmp(name, "rndis") &&
 				!strcmp(strim(rndis_transports), "BAM2BAM_IPA"))
 				name = "rndis_qc";
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 			err = android_enable_function(dev, conf, name);
 			if (err) {
 				pr_err("android_usb: Cannot enable '%s' (%d)",
@@ -4275,12 +4310,15 @@ functions_store(struct device *pdev, struct device_attribute *attr,
 		/* Always enable HID gadget function. */
 		if (!hid_enabled) {
 			name = "hid";
+#endif
 			err = android_enable_function(dev, conf, name);
 			if (err)
 				pr_err("android_usb: Cannot enable '%s' (%d)",
 							name, err);
+#ifdef CONFIG_USB_EXT_OUTPUT
 			else
 				hid_enabled = 1;
+#endif
 		}
 	}
 

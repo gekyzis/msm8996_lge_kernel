@@ -17,10 +17,14 @@
 #include <linux/poll.h>
 #include <linux/uaccess.h>
 #include <linux/wait.h>
+#ifdef CONFIG_USB_EXT_OUTPUT
 #include <linux/delay.h>
+#endif
 #include <linux/sched.h>
 #include <linux/usb/g_hid.h>
+#ifdef CONFIG_USB_EXT_OUTPUT
 #include "f_hid.h"
+#endif
 
 #include "u_f.h"
 
@@ -64,6 +68,7 @@ struct f_hidg {
 	struct usb_ep			*out_ep;
 };
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 /* Hacky device list to fix f_hidg_write being called after device destroyed.
    It covers only most common race conditions, there will be rare crashes anyway. */
 enum { HACKY_DEVICE_LIST_SIZE = 4 };
@@ -100,6 +105,7 @@ static int hacky_device_list_check(struct f_hidg *hidg)
 	}
 	return 1;
 }
+#endif
 
 static inline struct f_hidg *func_to_hidg(struct usb_function *f)
 {
@@ -217,10 +223,12 @@ static ssize_t f_hidg_read(struct file *file, char __user *buffer,
 	if (!access_ok(VERIFY_WRITE, buffer, count))
 		return -EFAULT;
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to read from device %p that was destroyed\n", __func__, hidg);
 		return -EIO;
 	}
+#endif
 
 	spin_lock_irqsave(&hidg->spinlock, flags);
 
@@ -292,10 +300,12 @@ static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
 	if (!access_ok(VERIFY_READ, buffer, count))
 		return -EFAULT;
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to write to device %p that was destroyed\n", __func__, hidg);
 		return -EIO;
 	}
+#endif
 
 	mutex_lock(&hidg->lock);
 
@@ -311,10 +321,12 @@ static ssize_t f_hidg_write(struct file *file, const char __user *buffer,
 				hidg->write_queue, WRITE_COND))
 			return -ERESTARTSYS;
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 		if (hacky_device_list_check(hidg)) {
 			pr_err("%s: trying to write to device %p that was destroyed\n", __func__, hidg);
 			return -EIO;
 		}
+#endif
 
 		mutex_lock(&hidg->lock);
 	}
@@ -356,17 +368,21 @@ static unsigned int f_hidg_poll(struct file *file, poll_table *wait)
 	struct f_hidg	*hidg  = file->private_data;
 	unsigned int	ret = 0;
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
 		return -EIO;
 	}
+#endif
 
 	poll_wait(file, &hidg->read_queue, wait);
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	if (hacky_device_list_check(hidg)) {
 		pr_err("%s: trying to poll device %p that was destroyed\n", __func__, hidg);
 		return -EIO;
 	}
+#endif
 
 	poll_wait(file, &hidg->write_queue, wait);
 
@@ -456,12 +472,16 @@ static int hidg_setup(struct usb_function *f,
 	case ((USB_DIR_IN | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8
 		  | HID_REQ_GET_PROTOCOL):
 		VDBG(cdev, "get_protocol\n");
+#ifndef CONFIG_USB_EXT_OUTPUT
+		goto stall;
+#else
 		length = min_t(unsigned, length, 1);
 		if (hidg->bInterfaceSubClass == USB_INTERFACE_SUBCLASS_BOOT)
 			((u8 *) req->buf)[0] = 0;	/* Boot protocol */
 		else
 			((u8 *) req->buf)[0] = 1;	/* Report protocol */
 		goto respond;
+#endif
 		break;
 
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8
@@ -473,6 +493,7 @@ static int hidg_setup(struct usb_function *f,
 	case ((USB_DIR_OUT | USB_TYPE_CLASS | USB_RECIP_INTERFACE) << 8
 		  | HID_REQ_SET_PROTOCOL):
 		VDBG(cdev, "set_protocol\n");
+#ifdef CONFIG_USB_EXT_OUTPUT
 		length = 0;
 		if (hidg->bInterfaceSubClass == USB_INTERFACE_SUBCLASS_BOOT) {
 			if (value == 0)		/* Boot protocol */
@@ -481,6 +502,7 @@ static int hidg_setup(struct usb_function *f,
 			if (value == 1)		/* Report protocol */
 				goto respond;
 		}
+#endif
 		goto stall;
 		break;
 
@@ -630,14 +652,20 @@ const struct file_operations f_hidg_fops = {
 	.llseek		= noop_llseek,
 };
 
+#ifndef CONFIG_USB_EXT_OUTPUT
+static int __init hidg_bind(struct usb_configuration *c, struct usb_function *f)
+#else
 static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
+#endif
 {
 	struct usb_ep		*ep;
 	struct f_hidg		*hidg = func_to_hidg(f);
 	int			status;
 	dev_t			dev;
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	pr_info("%s: creating device %p\n", __func__, hidg);
+#endif
 
 	/* allocate instance-specific interface IDs, and patch descriptors */
 	status = usb_interface_id(c, f);
@@ -704,7 +732,9 @@ static int hidg_bind(struct usb_configuration *c, struct usb_function *f)
 		goto fail_free_descs;
 
 	device_create(hidg_class, NULL, dev, NULL, "%s%d", "hidg", hidg->minor);
+#ifdef CONFIG_USB_EXT_OUTPUT
 	hacky_device_list_add(hidg);
+#endif
 
 	return 0;
 
@@ -725,17 +755,22 @@ static void hidg_unbind(struct usb_configuration *c, struct usb_function *f)
 {
 	struct f_hidg *hidg = func_to_hidg(f);
 
+#ifdef CONFIG_USB_EXT_OUTPUT
 	pr_info("%s: destroying device %p\n", __func__, hidg);
 	/* This does not cover all race conditions, only most common one */
 	mutex_lock(&hidg->lock);
 	hacky_device_list_remove(hidg);
 	mutex_unlock(&hidg->lock);
+#endif
 
 	device_destroy(hidg_class, MKDEV(major, hidg->minor));
 	cdev_del(&hidg->cdev);
 
 	/* disable/free request and end point */
 	usb_ep_disable(hidg->in_ep);
+#ifndef CONFIG_USB_EXT_OUTPUT
+	usb_ep_dequeue(hidg->in_ep, hidg->req);
+#endif
 	/* TODO: calling this function crash kernel,
 	   not calling this funct ion crash kernel inside f_hidg_write */
 	/* usb_ep_dequeue(hidg->in_ep, hidg->req); */
@@ -772,7 +807,11 @@ static struct usb_gadget_strings *ct_func_strings[] = {
 /*-------------------------------------------------------------------------*/
 /*                             usb_configuration                           */
 
+#ifndef CONFIG_USB_EXT_OUTPUT
+int __init hidg_bind_config(struct usb_configuration *c,
+#else
 int hidg_bind_config(struct usb_configuration *c,
+#endif
 			    struct hidg_func_descriptor *fdesc, int index)
 {
 	struct f_hidg *hidg;
@@ -826,7 +865,11 @@ int hidg_bind_config(struct usb_configuration *c,
 	return status;
 }
 
+#ifndef CONFIG_USB_EXT_OUTPUT
+int __init ghid_setup(struct usb_gadget *g, int count)
+#else
 int ghid_setup(struct usb_gadget *g, int count)
+#endif
 {
 	int status;
 	dev_t dev;

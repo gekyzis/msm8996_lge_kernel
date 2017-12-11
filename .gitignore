@@ -105,6 +105,7 @@ tools/gator/daemon/events_xml.h
 
 # Build output folder
 /build/
+/out/
 
 # Misc files
 arch/arm64/configs/lge_defconfig-bak

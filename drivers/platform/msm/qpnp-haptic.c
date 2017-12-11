@@ -1900,7 +1900,7 @@ static void qpnp_hap_worker(struct work_struct *work)
 	qpnp_hap_set(hap, hap->state);
 #else
 	u8 val = 0x00;
-	int rc, reg_en = 0;
+	int rc, reg_en;
 
 	if (hap->vcc_pon) {
 		reg_en = regulator_enable(hap->vcc_pon);

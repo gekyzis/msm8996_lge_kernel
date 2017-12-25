@@ -1701,11 +1701,12 @@ _random_read(int nonblock, char __user *buf, size_t nbytes)
 	}
 }
 
-static ssize_t
-random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
-{
-	return _random_read(file->f_flags & O_NONBLOCK, buf, nbytes);
-}
+/*static ssize_t
+ *random_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
+ *{
+ *	return _random_read(file->f_flags & O_NONBLOCK, buf, nbytes);
+ *}
+ */
 
 static ssize_t
 urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
@@ -1730,13 +1731,13 @@ urandom_read(struct file *file, char __user *buf, size_t nbytes, loff_t *ppos)
 #ifdef CONFIG_CRYPTO_CCMODE
 	cc_flag = get_cc_mode_state();
 	if ((cc_flag & FLAG_FORCE_USE_RANDOM_DEV) == FLAG_FORCE_USE_RANDOM_DEV) {
-        /* When SYSCALL(getrandom) is called,
-           If file or ppos pointer is NULL, set nonblock 0 */
-        if (file == NULL || ppos == NULL)
-            ret = _random_read(0, buf, nbytes);
-        else
-            ret = random_read(file, buf, nbytes, ppos);
-    }
+	/* When SYSCALL(getrandom) is called,
+	   If file or ppos pointer is NULL, set nonblock 0 */
+	if (file == NULL || ppos == NULL)
+		ret = _random_read(0, buf, nbytes);
+	else
+		ret = random_read(file, buf, nbytes, ppos);
+	}
 	else {
 #endif
 	ret = extract_crng_user(buf, nbytes);

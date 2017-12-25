@@ -643,7 +643,7 @@ VL53L0_API VL53L0_Error VL53L0_GetVcselPulsePeriod(VL53L0_DEV Dev,
  *                                       supported.
  * @return  "Other error code"           See ::VL53L0_Error
  */
-#if 0
+#ifdef CONFIG_MACH_MSM8996_ELSA
 VL53L0_API VL53L0_Error VL53L0_SetVcselPulsePeriod(VL53L0_DEV Dev,
                     VL53L0_VcselPeriod VcselPeriodType, uint8_t VCSELPulsePeriod);
 

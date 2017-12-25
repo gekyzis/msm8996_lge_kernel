@@ -1454,7 +1454,7 @@ VL53L0_Error VL53L0_GetMeasurementTimingBudgetMicroSeconds(VL53L0_DEV Dev,
     return Status;
 }
 
-#if 0
+#ifdef CONFIG_MACH_MSM8996_ELSA
 VL53L0_Error VL53L0_SetVcselPulsePeriod(VL53L0_DEV Dev,
          VL53L0_VcselPeriod VcselPeriodType, uint8_t VCSELPulsePeriodPCLK)
 {

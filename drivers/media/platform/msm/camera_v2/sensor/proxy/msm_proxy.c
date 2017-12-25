@@ -2327,16 +2327,6 @@ int msm_init_proxy_EwokAPI(void)
 							VL53L0_VCSEL_PERIOD_FINAL_RANGE, 10);
 					}
 				}
-#else
-				if (Status == VL53L0_ERROR_NONE) {
-					Status = VL53L0_SetVcselPulsePeriod(Dev, 
-						 VL53L0_VCSEL_PERIOD_PRE_RANGE, 14);
-				}
-				if (Status == VL53L0_ERROR_NONE) {
-					Status = VL53L0_SetVcselPulsePeriod(Dev, 
-						VL53L0_VCSEL_PERIOD_FINAL_RANGE, 10);
-				}
-
 #endif
 /* LGE_CHANGE_E, changed LD clk to reduce the S5K2P7 sensor power noise. 2016-11-21 sungmin.cho@lge.com */
 

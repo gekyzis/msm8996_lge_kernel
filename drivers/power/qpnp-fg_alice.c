@@ -634,6 +634,7 @@ struct fg_chip {
 	struct fg_wakeup_source	update_sram_wakeup_source;
 	bool			fg_restarting;
 	bool			profile_loaded;
+	bool			soc_reporting_ready;
 	bool			use_otp_profile;
 	bool			battery_missing;
 	bool			power_supply_registered;
@@ -1780,7 +1781,8 @@ static int __fg_interleaved_mem_write(struct fg_chip *chip, u8 *val,
 
 		rc = fg_check_iacs_ready(chip);
 		if (rc) {
-			pr_debug("IACS_RDY failed rc=%d\n", rc);
+			pr_err("IACS_RDY failed post write to address %x offset %d rc=%d\n",
+				address, offset, rc);
 			return rc;
 		}
 
@@ -1826,7 +1828,8 @@ static int __fg_interleaved_mem_read(struct fg_chip *chip, u8 *val, u16 address,
 
 		rc = fg_check_iacs_ready(chip);
 		if (rc) {
-			pr_debug("IACS_RDY failed rc=%d\n", rc);
+			pr_err("IACS_RDY failed post read for address %x offset %d rc=%d\n",
+				address, offset, rc);
 			return rc;
 		}
 
@@ -1909,7 +1912,8 @@ static int fg_interleaved_mem_config(struct fg_chip *chip, u8 *val,
 
 	rc = fg_check_iacs_ready(chip);
 	if (rc) {
-		pr_debug("IACS_RDY failed rc=%d\n", rc);
+		pr_err("IACS_RDY failed before setting address: %x offset: %d rc=%d\n",
+			address, offset, rc);
 		return rc;
 	}
 
@@ -1922,7 +1926,8 @@ static int fg_interleaved_mem_config(struct fg_chip *chip, u8 *val,
 
 	rc = fg_check_iacs_ready(chip);
 	if (rc)
-		pr_debug("IACS_RDY failed rc=%d\n", rc);
+		pr_err("IACS_RDY failed after setting address: %x offset: %d rc=%d\n",
+			address, offset, rc);
 
 	return rc;
 }
@@ -1933,7 +1938,7 @@ static int fg_interleaved_mem_config(struct fg_chip *chip, u8 *val,
 static int fg_interleaved_mem_read(struct fg_chip *chip, u8 *val, u16 address,
 				   int len, int offset)
 {
-	int rc = 0, orig_address = address;
+	int rc = 0, ret, orig_address = address;
 	u8 start_beat_count, end_beat_count, count = 0;
 	bool retry = false;
 
@@ -2014,9 +2019,14 @@ static int fg_interleaved_mem_read(struct fg_chip *chip, u8 *val, u16 address,
 	}
  out:
 	/* Release IMA access */
-	rc = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0, 1);
-	if (rc)
-		pr_err("failed to reset IMA access bit rc = %d\n", rc);
+	ret = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0, 1);
+	if (ret)
+		pr_err("failed to reset IMA access bit ret = %d\n", ret);
+
+	if (rc) {
+		mutex_unlock(&chip->rw_lock);
+		goto exit;
+	}
 
 	if (retry) {
 		retry = false;
@@ -2032,7 +2042,7 @@ static int fg_interleaved_mem_read(struct fg_chip *chip, u8 *val, u16 address,
 static int fg_interleaved_mem_write(struct fg_chip *chip, u8 *val, u16 address,
 				    int len, int offset)
 {
-	int rc = 0, orig_address = address;
+	int rc = 0, ret, orig_address = address;
 	u8 count = 0;
 
 	if (chip->fg_shutdown)
@@ -2077,9 +2087,9 @@ static int fg_interleaved_mem_write(struct fg_chip *chip, u8 *val, u16 address,
 
  out:
 	/* Release IMA access */
-	rc = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0, 1);
-	if (rc)
-		pr_err("failed to reset IMA access bit rc = %d\n", rc);
+	ret = fg_masked_write(chip, MEM_INTF_CFG(chip), IMA_REQ_ACCESS, 0, 1);
+	if (ret)
+		pr_err("failed to reset IMA access bit ret = %d\n", ret);
 
 	mutex_unlock(&chip->rw_lock);
 	fg_relax(&chip->memif_wakeup_source);
@@ -2193,9 +2203,11 @@ static void fg_handle_battery_insertion(struct fg_chip *chip)
 {
 	reinit_completion(&chip->batt_id_avail);
 	reinit_completion(&chip->fg_reset_done);
-	schedule_delayed_work(&chip->batt_profile_init, 0);
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->batt_profile_init, 0);
 	cancel_delayed_work(&chip->update_sram_data);
-	schedule_delayed_work(&chip->update_sram_data, msecs_to_jiffies(0));
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_sram_data, msecs_to_jiffies(0));
 }
 
 #ifndef CONFIG_LGE_PM
@@ -2629,9 +2641,9 @@ static int set_prop_jeita_temp(struct fg_chip *chip,
 	settings[type].value = decidegc;
 
 	cancel_delayed_work_sync(
-				 &chip->update_jeita_setting);
-	schedule_delayed_work(
-			      &chip->update_jeita_setting, 0);
+		&chip->update_jeita_setting);
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_jeita_setting, 0);
 
 	return rc;
 }
@@ -2952,6 +2964,61 @@ out:
 	return rc;
 }
 
+// Read the beat count and write it into the beat_count arg;
+// return non-zero on failure.
+static int read_beat(struct fg_chip *chip, u8 *beat_count)
+{
+	int rc = fg_read(chip, beat_count,
+			 chip->mem_base + MEM_INTF_FG_BEAT_COUNT, 1);
+	if (rc)
+		pr_err("failed to read beat count rc=%d\n", rc);
+	else if (fg_debug_mask & FG_STATUS)
+		pr_info("current: %d, prev: %d\n", *beat_count,
+			chip->last_beat_count);
+	return rc;
+}
+
+/*
+ * The FG_ALG_SYSCTL_1 word contains control bits for the
+ * fuel-gauge algorithm, most of whose effect are not
+ * publicly disclosed. The low nibble of 0x4B3 contains
+ * bits to control whether an IRQ is raised on low-battery
+ * conditions, as well as a debug bit (bit 3) that forces
+ * a delta-soc interrupt on every fuel-gauge cycle.
+ * The value in FG_ALG_SYSCTL_1_DFLT is the recommended
+ * default configuration with the IRQ's enabled.
+ */
+#define FG_ALG_SYSCTL_1		0x4B0
+#define FG_ALG_SYSCTL_1_DFLT	0x870C7999
+static int fg_check_system_config(struct fg_chip *chip)
+{
+	int rc;
+	u32 buf;
+
+	if (!chip->ima_supported)
+		return 0;
+
+	rc = fg_mem_read(chip, (u8 *)&buf, FG_ALG_SYSCTL_1, 4, 0, 0);
+	if (rc) {
+		pr_err("Failed to read 0x4B0-3 rc=%d\n", rc);
+		return rc;
+	}
+
+	if (fg_debug_mask & FG_STATUS)
+		pr_info("FG_ALG_SYSCTL_1: %x\n", buf);
+	if (buf != FG_ALG_SYSCTL_1_DFLT) {
+		pr_err("FG_ALG_SYSCTL_1 corrupted? buf: %x\n", buf);
+		buf = FG_ALG_SYSCTL_1_DFLT;
+		rc = fg_mem_write(chip, (u8 *)&buf, FG_ALG_SYSCTL_1, 4, 0, 0);
+		if (rc) {
+			pr_err("Failed to write 0x4B0-3 rc=%d\n", rc);
+			return rc;
+		}
+	}
+
+	return rc;
+}
+
 #define SANITY_CHECK_PERIOD_MS	5000
 static void check_sanity_work(struct work_struct *work)
 {
@@ -2962,19 +3029,28 @@ static void check_sanity_work(struct work_struct *work)
 	u8 beat_count;
 	bool tried_once = false;
 
+	rc = fg_check_system_config(chip);
+	if (rc)
+		pr_err("Failed to check system config rc=%d\n", rc);
+
+	// Try one beat check once up-front to avoid the common
+	// case where the beat has changed and we don't need to hold
+	// the chip awake.
+	rc = read_beat(chip, &beat_count);
+	if (rc == 0 && chip->last_beat_count != beat_count) {
+		chip->last_beat_count = beat_count;
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->check_sanity_work,
+			msecs_to_jiffies(SANITY_CHECK_PERIOD_MS));
+		return;
+	}
+
 	fg_stay_awake(&chip->sanity_wakeup_source);
 
 try_again:
-	rc = fg_read(chip, &beat_count,
-			chip->mem_base + MEM_INTF_FG_BEAT_COUNT, 1);
-	if (rc) {
-		pr_err("failed to read beat count rc=%d\n", rc);
+	rc = read_beat(chip, &beat_count);
+	if (rc)
 		goto resched;
-	}
-
-	if (fg_debug_mask & FG_STATUS)
-		pr_info("current: %d, prev: %d\n", beat_count,
-			chip->last_beat_count);
 
 	if (chip->last_beat_count == beat_count) {
 			if (!tried_once) {
@@ -2991,7 +3067,7 @@ try_again:
 		chip->last_beat_count = beat_count;
 	}
 resched:
-	schedule_delayed_work(
+	queue_delayed_work(system_power_efficient_wq,
 		&chip->check_sanity_work,
 		msecs_to_jiffies(SANITY_CHECK_PERIOD_MS));
 out:
@@ -3030,9 +3106,9 @@ static void update_sram_data_work(struct work_struct *work)
 
  out:
 	if (!rc)
-	schedule_delayed_work(
-			      &chip->update_sram_data,
-			      msecs_to_jiffies(resched_ms));
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->update_sram_data,
+			msecs_to_jiffies(resched_ms));
 }
 
 #define BATT_TEMP_OFFSET	3
@@ -3168,10 +3244,10 @@ static void update_temp_data(struct work_struct *work)
 	}
 	fg_relax(&chip->update_temp_wakeup_source);
 
- resched:
-	schedule_delayed_work(
-			      &chip->update_temp_work,
-			      msecs_to_jiffies(TEMP_PERIOD_UPDATE_MS));
+resched:
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_temp_work,
+		msecs_to_jiffies(TEMP_PERIOD_UPDATE_MS));
 }
 
 static void update_jeita_setting(struct work_struct *work)
@@ -3966,13 +4042,11 @@ static void fg_cap_learning_work(struct work_struct *work)
 
 #define CC_SOC_BASE_REG		0x5BC
 #define CC_SOC_OFFSET		3
-#define CC_SOC_MAGNITUDE_MASK	0x1FFFFFFF
-#define CC_SOC_NEGATIVE_BIT	BIT(29)
 static int fg_get_cc_soc(struct fg_chip *chip, int *cc_soc)
 {
 	int rc;
 	u8 reg[4];
-	unsigned int temp, magnitude;
+	int temp;
 
 	rc = fg_mem_read(chip, reg, CC_SOC_BASE_REG, 4, CC_SOC_OFFSET, 0);
 	if (rc) {
@@ -3981,12 +4055,7 @@ static int fg_get_cc_soc(struct fg_chip *chip, int *cc_soc)
 	}
 
 	temp = reg[3] << 24 | reg[2] << 16 | reg[1] << 8 | reg[0];
-	magnitude = temp & CC_SOC_MAGNITUDE_MASK;
-	if (temp & CC_SOC_NEGATIVE_BIT)
-		*cc_soc = -1 * (~magnitude + 1);
-	else
-		*cc_soc = magnitude;
-
+	*cc_soc = sign_extend32(temp, 29);
 	return 0;
 }
 
@@ -4374,6 +4443,17 @@ static int fg_cap_learning_check(struct fg_chip *chip)
 		}
 
 		fg_cap_learning_stop(chip);
+	} else if (chip->status == POWER_SUPPLY_STATUS_FULL) {
+		if (chip->wa_flag & USE_CC_SOC_REG) {
+			/* reset SW_CC_SOC register to 100% upon charge_full */
+			rc = fg_mem_write(chip, (u8 *)&cc_pc_100,
+				CC_SOC_BASE_REG, 4, CC_SOC_OFFSET, 0);
+			if (rc)
+				pr_err("Failed to reset CC_SOC_REG rc=%d\n",
+								rc);
+			else if (fg_debug_mask & FG_STATUS)
+				pr_info("Reset SW_CC_SOC to full value\n");
+		}
 	}
 
  fail:
@@ -4469,7 +4549,7 @@ static void status_change_work(struct work_struct *work)
 					    struct fg_chip,
 					    status_change_work);
 	unsigned long current_time = 0;
-	int cc_soc, rc, capacity = get_prop_capacity(chip);
+	int cc_soc, batt_soc, rc, capacity = get_prop_capacity(chip);
 	bool batt_missing = is_battery_missing(chip);
 
 	if (batt_missing) {
@@ -4524,13 +4604,34 @@ static void status_change_work(struct work_struct *work)
 
 	if (chip->prev_status != chip->status && chip->last_sram_update_time) {
 		/*
+		 * Reset SW_CC_SOC to a value based off battery SOC when
+		 * the device is discharging.
+		 */
+		if (chip->status == POWER_SUPPLY_STATUS_DISCHARGING) {
+			batt_soc = get_battery_soc_raw(chip);
+			if (!batt_soc)
+				return;
+
+			batt_soc = div64_s64((int64_t)batt_soc *
+					FULL_PERCENT_28BIT, FULL_PERCENT_3B);
+			rc = fg_mem_write(chip, (u8 *)&batt_soc,
+				CC_SOC_BASE_REG, 4, CC_SOC_OFFSET, 0);
+			if (rc)
+				pr_err("Failed to reset CC_SOC_REG rc=%d\n",
+									rc);
+			else if (fg_debug_mask & FG_STATUS)
+				pr_info("Reset SW_CC_SOC to %x\n", batt_soc);
+		}
+
+		/*
 		 * Schedule the update_temp_work whenever there is a status
 		 * change. This is essential for applying the slope limiter
 		 * coefficients when that feature is enabled.
 		 */
 		if (chip->last_temp_update_time && chip->soc_slope_limiter_en) {
 			cancel_delayed_work_sync(&chip->update_temp_work);
-			schedule_delayed_work(&chip->update_temp_work,
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->update_temp_work,
 				msecs_to_jiffies(0));
 		}
 
@@ -4546,8 +4647,9 @@ static void status_change_work(struct work_struct *work)
 		 */
 		if (chip->last_sram_update_time + 5 < current_time) {
 			cancel_delayed_work(&chip->update_sram_data);
-			schedule_delayed_work(&chip->update_sram_data,
-					      msecs_to_jiffies(0));
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->update_sram_data,
+				msecs_to_jiffies(0));
 		}
 
 		if (chip->cyc_ctr.en)
@@ -4564,6 +4666,7 @@ static void status_change_work(struct work_struct *work)
 					chip->sw_cc_soc_data.init_cc_soc);
 		}
 	}
+
 	if ((chip->wa_flag & USE_CC_SOC_REG) && chip->bad_batt_detection_en
 	    && chip->safety_timer_expired) {
 		chip->sw_cc_soc_data.delta_soc =
@@ -5078,7 +5181,7 @@ static int fg_power_get_property(struct power_supply *psy,
 		val->intval = !!chip->bcl_lpm_disabled;
 		break;
 	case POWER_SUPPLY_PROP_SOC_REPORTING_READY:
-		val->intval = !!chip->profile_loaded;
+		val->intval = !!chip->soc_reporting_ready;
 		break;
 	case POWER_SUPPLY_PROP_IGNORE_FALSE_NEGATIVE_ISENSE:
 		val->intval = !chip->allow_false_negative_isense;
@@ -5698,8 +5801,9 @@ static irqreturn_t fg_vbatt_low_handler(int irq, void *_chip)
 			disable_irq_nosync(chip->batt_irq[VBATT_LOW].irq);
 			chip->vbat_low_irq_enabled = false;
 			fg_stay_awake(&chip->empty_check_wakeup_source);
-			schedule_delayed_work(&chip->check_empty_work,
-					      msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->check_empty_work,
+				msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 		} else {
 			if (fg_debug_mask & FG_IRQS)
 				pr_info("Vbatt is high\n");
@@ -5734,6 +5838,7 @@ static irqreturn_t fg_batt_missing_irq_handler(int irq, void *_chip)
 		fg_cap_learning_stop(chip);
 		chip->battery_missing = true;
 		chip->profile_loaded = false;
+		chip->soc_reporting_ready = false;
 		chip->batt_type = default_batt_type;
 		mutex_lock(&chip->cyc_ctr.lock);
 		if (fg_debug_mask & FG_IRQS)
@@ -5805,6 +5910,10 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 	if (fg_debug_mask & FG_IRQS)
 		pr_info("triggered 0x%x\n", soc_rt_sts);
 
+	rc = fg_check_system_config(chip);
+	if (rc)
+		pr_err("Failed to check system config rc=%d\n", rc);
+
 	if (chip->dischg_gain.enable) {
 		fg_stay_awake(&chip->dischg_gain_wakeup_source);
 		schedule_work(&chip->dischg_gain_work);
@@ -5830,9 +5939,10 @@ static irqreturn_t fg_soc_irq_handler(int irq, void *_chip)
 	if (chip->use_vbat_low_empty_soc) {
 	msoc = get_monotonic_soc_raw(chip);
 		if (msoc == 0 || chip->soc_empty) {
-		      fg_stay_awake(&chip->empty_check_wakeup_source);
-		      schedule_delayed_work(&chip->check_empty_work,
-				      msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
+			fg_stay_awake(&chip->empty_check_wakeup_source);
+			queue_delayed_work(system_power_efficient_wq,
+				&chip->check_empty_work,
+				msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 	        }
 	}
 
@@ -5891,7 +6001,8 @@ static irqreturn_t fg_empty_soc_irq_handler(int irq, void *_chip)
 		pr_info("triggered 0x%x\n", soc_rt_sts);
 	if (fg_is_batt_empty(chip)) {
 		fg_stay_awake(&chip->empty_check_wakeup_source);
-		schedule_delayed_work(&chip->check_empty_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->check_empty_work,
 			msecs_to_jiffies(FG_EMPTY_DEBOUNCE_MS));
 	} else {
 		chip->soc_empty = false;
@@ -6547,8 +6658,9 @@ static int fg_do_restart(struct fg_chip *chip, bool write_profile)
 
 			if (!tried_once) {
 				cancel_delayed_work(&chip->update_sram_data);
-				schedule_delayed_work(&chip->update_sram_data,
-						msecs_to_jiffies(0));
+				queue_delayed_work(system_power_efficient_wq,
+					&chip->update_sram_data,
+					msecs_to_jiffies(0));
 				msleep(1000);
 				tried_once = true;
 				goto try_again;
@@ -7125,6 +7237,7 @@ done:
 
 	chip->first_profile_loaded = true;
 	chip->profile_loaded = true;
+	chip->soc_reporting_ready = true;
 	chip->battery_missing = is_battery_missing(chip);
 
 	update_chg_iterm(chip);
@@ -7151,7 +7264,7 @@ done:
 		get_sram_prop_now(chip, FG_DATA_BATT_ESR)
 		);
 	cancel_delayed_work(&chip->update_sram_data);
-	schedule_delayed_work(
+	queue_delayed_work(system_power_efficient_wq,
 			      &chip->update_sram_data,
 			      msecs_to_jiffies(0));
 #else
@@ -7164,6 +7277,7 @@ done:
 	complete_all(&chip->fg_reset_done);
 	return rc;
  no_profile:
+	chip->soc_reporting_ready = true;
 	if (chip->charging_disabled) {
 		rc = set_prop_enable_charging(chip, true);
 		if (rc)
@@ -7179,12 +7293,12 @@ done:
 
 update:
 	cancel_delayed_work(&chip->update_sram_data);
-	schedule_delayed_work(
+	queue_delayed_work(system_power_efficient_wq,
 		&chip->update_sram_data,
 		msecs_to_jiffies(0));
 
 reschedule:
-	schedule_delayed_work(
+	queue_delayed_work(system_power_efficient_wq,
 		&chip->batt_profile_init,
 		msecs_to_jiffies(BATTERY_PSY_WAIT_MS));
 	fg_relax(&chip->profile_wakeup_source);
@@ -7984,10 +8098,11 @@ static int fg_init_irqs(struct fg_chip *chip)
 				return rc;
 			}
 
-			rc = devm_request_irq(chip->dev,
-					      chip->soc_irq[FULL_SOC].irq,
-					      fg_soc_irq_handler, IRQF_TRIGGER_RISING,
-					      "full-soc", chip);
+			rc = devm_request_threaded_irq(chip->dev,
+				chip->soc_irq[FULL_SOC].irq, NULL,
+				fg_soc_irq_handler,
+				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				"full-soc", chip);
 			if (rc < 0) {
 				pr_err("Can't request %d full-soc: %d\n",
 				       chip->soc_irq[FULL_SOC].irq, rc);
@@ -8009,10 +8124,11 @@ static int fg_init_irqs(struct fg_chip *chip)
 				}
 			}
 
-			rc = devm_request_irq(chip->dev,
-					      chip->soc_irq[DELTA_SOC].irq,
-					      fg_soc_irq_handler, IRQF_TRIGGER_RISING,
-					      "delta-soc", chip);
+			rc = devm_request_threaded_irq(chip->dev,
+				chip->soc_irq[DELTA_SOC].irq, NULL,
+				fg_soc_irq_handler,
+				IRQF_TRIGGER_RISING | IRQF_ONESHOT,
+				"delta-soc", chip);
 			if (rc < 0) {
 				pr_err("Can't request %d delta-soc: %d\n",
 				       chip->soc_irq[DELTA_SOC].irq, rc);
@@ -8689,7 +8805,6 @@ static int bcl_trim_workaround(struct fg_chip *chip)
 	return 0;
 }
 
-#define FG_ALG_SYSCTL_1			0x4B0
 #define KI_COEFF_PRED_FULL_ADDR		0x408
 #define TEMP_FRAC_SHIFT_REG		0x4A4
 #define FG_ADC_CONFIG_REG		0x4B8
@@ -8869,6 +8984,12 @@ static int fg_common_hw_init(struct fg_chip *chip)
 	if (fg_debug_mask & FG_STATUS)
 		pr_info("rslow_comp active is %sabled\n",
 			chip->rslow_comp.active ? "en" : "dis");
+
+	rc = fg_check_system_config(chip);
+	if (rc) {
+		pr_err("Failed to check system config rc=%d\n", rc);
+		return rc;
+	}
 
 	/*
 	 * Clear bits 0-2 in 0x4B3 and set them again to make empty_soc irq
@@ -9231,6 +9352,7 @@ static void ima_error_recovery_work(struct work_struct *work)
 	if (!chip->use_otp_profile) {
 		chip->battery_missing = true;
 		chip->profile_loaded = false;
+		chip->soc_reporting_ready = false;
 		chip->batt_type = default_batt_type;
 		fg_handle_battery_insertion(chip);
 	}
@@ -9384,9 +9506,9 @@ static void delayed_init_work(struct work_struct *work)
 	/* release memory access before update_sram_data is called */
 	fg_mem_release(chip);
 
-	schedule_delayed_work(
-			      &chip->update_jeita_setting,
-			      msecs_to_jiffies(INIT_JEITA_DELAY_MS));
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_jeita_setting,
+		msecs_to_jiffies(INIT_JEITA_DELAY_MS));
 
 	if (chip->last_sram_update_time == 0)
 		update_sram_data_work(&chip->update_sram_data.work);
@@ -9395,10 +9517,12 @@ static void delayed_init_work(struct work_struct *work)
 		update_temp_data(&chip->update_temp_work.work);
 
 	if (!chip->use_otp_profile)
-		schedule_delayed_work(&chip->batt_profile_init, 0);
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->batt_profile_init, 0);
 
 	if (chip->ima_supported && fg_reset_on_lockup)
-		schedule_delayed_work(&chip->check_sanity_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
 
 	if (chip->wa_flag & IADC_GAIN_COMP_WA) {
@@ -9430,7 +9554,8 @@ static void fg_soc_level_log(struct work_struct *work)
 	}
 	pr_info("batt_soc_modify : %d, batt_soc_original : %d, voltage : %d\n",
 		batt_soc_modify, batt_soc_original, get_sram_prop_now(chip, FG_DATA_VOLTAGE));
-	schedule_delayed_work(&chip->soc_level_log, 6000);
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->soc_level_log, 6000);
 	return;
 }
 #endif
@@ -9533,7 +9658,8 @@ static int fg_probe(struct spmi_device *spmi)
 #ifdef CONFIG_LGE_PM
 #ifdef CONFIG_LGE_PM_BATT_PROFILE_DEBUG
 	INIT_DELAYED_WORK(&chip->soc_level_log, fg_soc_level_log);
-	schedule_delayed_work(&chip->soc_level_log, 1000);
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->soc_level_log, 1000);
 #endif
 #endif
 	alarm_init(&chip->fg_cap_learning_alarm, ALARM_BOOTTIME,
@@ -9768,8 +9894,8 @@ static void check_and_update_sram_data(struct fg_chip *chip)
 	else
 		time_left = 0;
 
-	schedule_delayed_work(
-			      &chip->update_temp_work, msecs_to_jiffies(time_left * 1000));
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_temp_work, msecs_to_jiffies(time_left * 1000));
 
 	next_update_time = chip->last_sram_update_time
 		+ (fg_sram_update_period_ms / 1000);
@@ -9779,8 +9905,8 @@ static void check_and_update_sram_data(struct fg_chip *chip)
 	else
 		time_left = 0;
 
-	schedule_delayed_work(
-			      &chip->update_sram_data, msecs_to_jiffies(time_left * 1000));
+	queue_delayed_work(system_power_efficient_wq,
+		&chip->update_sram_data, msecs_to_jiffies(time_left * 1000));
 }
 
 static int fg_suspend(struct device *dev)
@@ -9890,7 +10016,8 @@ static int fg_reset_lockup_set(const char *val, const struct kernel_param *kp)
 		pr_info("fg_reset_on_lockup set to %d\n", fg_reset_on_lockup);
 
 	if (fg_reset_on_lockup)
-		schedule_delayed_work(&chip->check_sanity_work,
+		queue_delayed_work(system_power_efficient_wq,
+			&chip->check_sanity_work,
 			msecs_to_jiffies(1000));
 	else
 		cancel_delayed_work_sync(&chip->check_sanity_work);

@@ -1285,10 +1285,6 @@ static int get_prop_batt_status(struct smbchg_chip *chip)
 		dev_err(chip->dev, "Unable to read CHGR_STS rc = %d\n", rc);
 		return POWER_SUPPLY_STATUS_UNKNOWN;
 	}
-#ifdef CONFIG_LGE_PM_LGE_POWER_CLASS_CHARGING_CONTROLLER
-	if (charger_present && chip->pseudo_ui_chg && chip->lge_cc_lpc_finish)
-		return POWER_SUPPLY_STATUS_CHARGING;
-#endif
 
 	if (reg & CHG_HOLD_OFF_BIT) {
 		/*
@@ -9257,6 +9253,7 @@ static int determine_initial_status(struct smbchg_chip *chip)
 		usbid_change_handler(0, chip);
 	}
 #endif
+	src_detect_handler(0, chip);
 
 	chip->usb_present = is_usb_present(chip);
 	chip->dc_present = is_dc_present(chip);

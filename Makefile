@@ -386,7 +386,7 @@ CFLAGS_GCOV	= -fprofile-arcs -ftest-coverage -fno-tree-loop-im
 
 # fall back to -march=armv8-a in case the compiler isn't compatible 
 # with -mcpu and -mtune
-ARM_ARCH_OPT := -mcpu=cortex-a57+crc+crypto -mtune=cortex-a57
+ARM_ARCH_OPT := -mcpu=cortex-a53+crc+crypto -mtune=cortex-a53
 GEN_OPT_FLAGS := $(call cc-option,$(ARM_ARCH_OPT),-march=armv8-a) \
  -g0 \
  -DNDEBUG \
@@ -637,7 +637,7 @@ all: vmlinux
 include $(srctree)/arch/$(SRCARCH)/Makefile
 
 KBUILD_CFLAGS	+= $(call cc-option,-fno-delete-null-pointer-checks,)
-KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
+#KBUILD_CFLAGS	+= $(call cc-disable-warning,maybe-uninitialized,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning,frame-address,)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-truncation)
 KBUILD_CFLAGS	+= $(call cc-disable-warning, format-overflow)

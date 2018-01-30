@@ -532,7 +532,6 @@ struct smb1351_charger {
 	int			slave_fcc_ma_before_esr;
 	int			workaround_flags;
 
-	struct mutex		parallel_config_lock;
 	int			parallel_pin_polarity_setting;
 	bool			is_slave;
 	bool			use_external_fg;
@@ -2607,12 +2606,10 @@ static int smb1351_parallel_set_property(struct power_supply *psy,
 		}
 		break;
 	case POWER_SUPPLY_PROP_PRESENT:
-		mutex_lock(&chip->parallel_config_lock);
 		rc = smb1351_parallel_set_chg_present(chip, val->intval);
 		if (rc)
 			pr_err("Set charger %spresent failed\n",
 					val->intval ? "" : "un-");
-		mutex_unlock(&chip->parallel_config_lock);
 		break;
 	case POWER_SUPPLY_PROP_CONSTANT_CHARGE_CURRENT_MAX:
 		if (chip->parallel_charger_present) {
@@ -2958,7 +2955,7 @@ end:
 	smb1351_relax(&chip->smb1351_ws, HVDCP_DETECT);
 }
 
-#define HVDCP_NOTIFY_MS 3500
+#define HVDCP_NOTIFY_MS 2500
 static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 						u8 status)
 {
@@ -2990,23 +2987,21 @@ static int smb1351_apsd_complete_handler(struct smb1351_charger *chip,
 		 * If defined force hvdcp 2p0 property,
 		 * we force to hvdcp 2p0 in the APSD handler.
 		 */
-		if (type == POWER_SUPPLY_TYPE_USB_DCP) {
-			if (chip->force_hvdcp_2p0) {
-				pr_debug("Force set to HVDCP 2.0 mode\n");
-				smb1351_masked_write(chip, VARIOUS_FUNC_3_REG,
+		if (chip->force_hvdcp_2p0) {
+			pr_debug("Force set to HVDCP 2.0 mode\n");
+			smb1351_masked_write(chip, VARIOUS_FUNC_3_REG,
 						QC_2P1_AUTH_ALGO_BIT, 0);
-				smb1351_masked_write(chip, CMD_HVDCP_REG,
+			smb1351_masked_write(chip, CMD_HVDCP_REG,
 						CMD_FORCE_HVDCP_2P0_BIT,
 						CMD_FORCE_HVDCP_2P0_BIT);
-				type = POWER_SUPPLY_TYPE_USB_HVDCP;
-			} else {
-				pr_debug("schedule hvdcp detection worker\n");
-				smb1351_stay_awake(&chip->smb1351_ws,
-							HVDCP_DETECT);
-				schedule_delayed_work(&chip->hvdcp_det_work,
+			type = POWER_SUPPLY_TYPE_USB_HVDCP;
+		} else if (type == POWER_SUPPLY_TYPE_USB_DCP) {
+			pr_debug("schedule hvdcp detection worker\n");
+			smb1351_stay_awake(&chip->smb1351_ws, HVDCP_DETECT);
+			schedule_delayed_work(&chip->hvdcp_det_work,
 					msecs_to_jiffies(HVDCP_NOTIFY_MS));
-			}
 		}
+
 		power_supply_set_supply_type(chip->usb_psy, type);
 		/*
 		 * SMB is now done sampling the D+/D- lines,
@@ -4634,7 +4629,7 @@ static int smb1351_main_charger_probe(struct i2c_client *client,
 			chip->adc_param.low_temp = chip->batt_cool_decidegc;
 			chip->adc_param.high_temp = chip->batt_warm_decidegc;
 		}
-		chip->adc_param.timer_interval = ADC_MEAS1_INTERVAL_500MS;
+		chip->adc_param.timer_interval = ADC_MEAS2_INTERVAL_1S;
 		chip->adc_param.state_request = ADC_TM_WARM_COOL_THR_ENABLE;
 		chip->adc_param.btm_ctx = chip;
 		chip->adc_param.threshold_notification =
@@ -4710,7 +4705,6 @@ static int smb1351_parallel_slave_probe(struct i2c_client *client,
 				EN_BY_PIN_HIGH_ENABLE : EN_BY_PIN_LOW_ENABLE;
 
 	i2c_set_clientdata(client, chip);
-	mutex_init(&chip->parallel_config_lock);
 
 	chip->parallel_psy.name		= "usb-parallel";
 	chip->parallel_psy.type		= POWER_SUPPLY_TYPE_USB_PARALLEL;
@@ -4743,7 +4737,6 @@ fail_register_psy:
 	wakeup_source_trash(&chip->smb1351_ws.source);
 	mutex_destroy(&chip->irq_complete);
 	mutex_destroy(&chip->fcc_lock);
-	mutex_destroy(&chip->parallel_config_lock);
 	return rc;
 }
 
@@ -4766,10 +4759,8 @@ static int smb1351_charger_remove(struct i2c_client *client)
 	wakeup_source_trash(&chip->smb1351_ws.source);
 	mutex_destroy(&chip->irq_complete);
 	mutex_destroy(&chip->fcc_lock);
-	if (is_parallel_slave(client)) {
-		mutex_destroy(&chip->parallel_config_lock);
+	if (is_parallel_slave(client))
 		mutex_destroy(&chip->parallel.lock);
-	}
 	debugfs_remove_recursive(chip->debug_root);
 	return 0;
 }

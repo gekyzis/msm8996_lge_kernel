@@ -11,79 +11,37 @@
 #
 ##################### VARIANTS #####################
 #
-# h820   = AT&T (US)
-#          LGH820   (LG G5)
+# h850		= International (Global)
+#		LGH850   (LG G5)
 #
-# h830   = T-Mobile (US)
-#          LGH830   (LG G5)
+# h830		= T-Mobile (US)
+#		LGH830   (LG G5)
 #
-# ls992  = Sprint (US)
-#          LGLS992  (LG G5)
-#
-# us992  = US Cellular (US)
-#          LGUS992  (LG G5)
-#
-# vs987  = Verizon (US)
-#          LGVS987  (LG G5)
-#
-# rs987  = LTE Rural America (US)
-#          LGRS987  (LG G5)
-#
-# rs988  = Unlocked (US)
-#          LGRS988  (LG G5)
-#
-# h831   = Canada
-#          LGH831   (LG G5)
-#
-# h850   = International (Global)
-#          LGH850   (LG G5)
-#
-# h860n  = Dual Sim (China / Hong Kong)
-#          LGH860N  (LG G5)
-#
-# f700k  = KT Corporation (Korea)
-#          LGF700K  (LG G5)
-#
-# f700l  = LG Uplus (Korea)
-#          LGF700L  (LG G5)
-#
-# f700s  = SK Telecom (Korea)
-#          LGF700S  (LG G5)
+# rs988		= Unlocked (US)
+#		LGRS988  (LG G5) (Net yet prepared for build)
 #
 #   ************************
 #
-# h910   = AT&T (US)
-#          LGH910   (LG V20)
+# h910		= AT&T (US)
+#		LGH910   (LG V20)
 #
-# h918   = T-Mobile (US)
-#          LGH918   (LG V20)
+# h918		= T-Mobile (US)
+#		LGH918   (LG V20)
 #
-# ls997  = Sprint (US)
-#          LGLS997  (LG V20)
+# us996		= US Cellular & Unlocked (US)
+#		LGUS996  (LG V20)
 #
-# us996  = US Cellular & Unlocked (US)
-#          LGUS996  (LG V20)
+# us996santa	= US Cellular & Unlocked (US)
+#		LGUS996  (LG V20) (Unlocked with Kernel Exploit)
 #
-# vs995  = Verizon (US)
-#          LGVS995  (LG V20)
+# vs995		= Verizon (US)
+#		LGVS995  (LG V20)
 #
-# h915   = Canada
-#          LGH915   (LG V20)
+# h990		= International (Global)
+#		LGH990   (LG V20)
 #
-# h990   = International (Global)
-#          LGH990   (LG V20)
-#
-# h990tr = Dual Sim (China / Hong Kong)
-#          LGH990TR (LG V20)
-#
-# f800k  = KT Corporation (Korea)
-#          LGF800K  (LG V20)
-#
-# f800l  = LG Uplus (Korea)
-#          LGF800L  (LG V20)
-#
-# f800s  = SK Telecom (Korea)
-#          LGF800S  (LG V20)
+# ls997		= Sprint (US)
+#		LGLS997  (LG V20) (Net yet prepared for build)
 #
 ###################### CONFIG ######################
 

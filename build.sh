@@ -78,7 +78,7 @@ ABORT "Unable to find gcc cross-compiler at location: ${CROSS_COMPILE}gcc"
 
 [ "$TARGET" ] || TARGET=lge
 [ "$1" ] && DEVICE=$1
-[ "$DEVICE" ] || DEVICE=h918
+[ "$DEVICE" ] || ABORT "No device specified"
 
 DEFCONFIG=${TARGET}_defconfig
 DEVICE_DEFCONFIG=device_lge_${DEVICE}

@@ -8,7 +8,7 @@ ABORT() {
 }
 
 [ "$1" ] && DEVICE=$1
-[ "$DEVICE" ]
+[ "$DEVICE" ] || ABORT "No device specified"
 
 DEVICE_FOLDER=out/${DEVICE}
 

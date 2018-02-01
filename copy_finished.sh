@@ -1,16 +1,20 @@
 #!/bin/bash
+#
+# This script copies the dtb-embedded kernel, and modules, to the *out* directory, in
+# it's own appropriate subfolder.
+# You can simply run ./copy_finished.sh after doing ./build.sh - it knows which device you built for.
 
 RDIR=$(pwd)
 
 ABORT() {
-	[ "$1" ] && echo "Error: $*"
+	echo "Error: $*"
 	exit 1
 }
 
-[ "$1" ] && DEVICE=$1
-[ "$DEVICE" ] || ABORT "No device specified"
+DEVICE=$(cat "$RDIR/build/DEVICE") \
+		|| ABORT "No device file found in *build* folder"
 
-DEVICE_FOLDER=out/${DEVICE}
+DEVICE_FOLDER=out/$DEVICE
 
 SETUP_FOLDER() {
 	echo "Creating folders..."

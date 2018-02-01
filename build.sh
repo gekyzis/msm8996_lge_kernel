@@ -18,7 +18,7 @@
 #		LGH830   (LG G5)
 #
 # rs988		= Unlocked (US)
-#		LGRS988  (LG G5) (Net yet prepared for build)
+#		LGRS988  (LG G5) (Not yet prepared for build)
 #
 #   ************************
 #
@@ -41,7 +41,7 @@
 #		LGH990   (LG V20)
 #
 # ls997		= Sprint (US)
-#		LGLS997  (LG V20) (Net yet prepared for build)
+#		LGLS997  (LG V20) (Not yet prepared for build)
 #
 ###################### CONFIG ######################
 
@@ -58,7 +58,9 @@ TOOLCHAIN=$HOME/build/toolchain/bin/aarch64-linux-gnu-
 
 CPU_THREADS=$(grep -c "processor" /proc/cpuinfo)
 # amount of cpu threads to use in kernel make process
+# I'm using a VM on a slow pc...
 THREADS=2
+#THREADS=$((CPU_THREADS + 1))
 
 ############## SCARY NO-TOUCHY STUFF ###############
 
@@ -90,7 +92,7 @@ ABORT "Config $DEFCONFIG not found in $ARCH configs!"
 ABORT "Device config $DEVICE_DEFCONFIG not found in $ARCH configs!"
 
 KDIR="$RDIR/build/arch/$ARCH/boot"
-export LOCALVERSION=$TARGET-$DEVICE-$VER
+export LOCALVERSION=$DEVICE-$VER
 
 CLEAN_BUILD() {
 	echo "Cleaning build..."
@@ -100,6 +102,8 @@ CLEAN_BUILD() {
 SETUP_BUILD() {
 	echo "Creating kernel config for $LOCALVERSION..."
 	mkdir -p build
+	echo "$DEVICE" > build/DEVICE \
+		|| ABORT "Failed to reflect device"
 	make -C "$RDIR" O=build "$DEFCONFIG" \
 		DEVICE_DEFCONFIG="$DEVICE_DEFCONFIG" \
 		|| ABORT "Failed to set up build"
@@ -132,4 +136,4 @@ CLEAN_BUILD &&
 SETUP_BUILD &&
 BUILD_KERNEL &&
 INSTALL_MODULES &&
-echo "Finished building $LOCALVERSION!"
+echo "Finished building $LOCALVERSION - Run ./copy_finished.sh"

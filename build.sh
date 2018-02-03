@@ -1,6 +1,8 @@
 #!/bin/bash
+#
 # Stock kernel for LG Electronics msm8996 devices build script by jcadduono
-
+# -modified by stendro
+#
 ################### BEFORE STARTING ################
 #
 # download a working toolchain and extract it somewhere and configure this
@@ -11,36 +13,36 @@
 #
 ##################### VARIANTS #####################
 #
-# h850		= International (Global)
+# H850		= International (Global)
 #		LGH850   (LG G5)
 #
-# h830		= T-Mobile (US)
+# H830		= T-Mobile (US)
 #		LGH830   (LG G5)
 #
-# rs988		= Unlocked (US)
+# RS988		= Unlocked (US)
 #		LGRS988  (LG G5) (Not yet prepared for build)
 #
 #   ************************
 #
-# h910		= AT&T (US)
+# H910		= AT&T (US)
 #		LGH910   (LG V20)
 #
-# h918		= T-Mobile (US)
+# H918		= T-Mobile (US)
 #		LGH918   (LG V20)
 #
-# us996		= US Cellular & Unlocked (US)
+# US996		= US Cellular & Unlocked (US)
 #		LGUS996  (LG V20)
 #
-# us996santa	= US Cellular & Unlocked (US)
+# US996Santa	= US Cellular & Unlocked (US)
 #		LGUS996  (LG V20) (Unlocked with Kernel Exploit)
 #
-# vs995		= Verizon (US)
+# VS995		= Verizon (US)
 #		LGVS995  (LG V20)
 #
-# h990		= International (Global)
+# H990		= International (Global)
 #		LGH990   (LG V20)
 #
-# ls997		= Sprint (US)
+# LS997		= Sprint (US)
 #		LGLS997  (LG V20) (Not yet prepared for build)
 #
 ###################### CONFIG ######################
@@ -92,7 +94,7 @@ ABORT "Config $DEFCONFIG not found in $ARCH configs!"
 ABORT "Device config $DEVICE_DEFCONFIG not found in $ARCH configs!"
 
 KDIR="$RDIR/build/arch/$ARCH/boot"
-export LOCALVERSION=$DEVICE-$VER
+export LOCALVERSION=$DEVICE$VER
 
 CLEAN_BUILD() {
 	echo "Cleaning build..."

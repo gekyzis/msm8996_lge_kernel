@@ -350,6 +350,7 @@ struct touch_device_caps {
 struct touch_operation_role {
 	bool use_lpwg;
 	u32 use_lpwg_test;
+	bool use_upgrade;
 	bool hide_coordinate;
 	u32 mfts_lpwg;
 };

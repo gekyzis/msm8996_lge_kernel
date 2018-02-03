@@ -385,19 +385,23 @@ inline static void anx7688_dump_register(void)
 }
 
 #define PWR_DELAY    50
-#define BOOT_TIMEOUT (3200/PWR_DELAY)
+#define BOOT_TIMEOUT (1000/PWR_DELAY)
 void anx7688_pwr_on(struct anx7688_chip *chip)
 {
 	struct i2c_client *client = chip->client;
 	struct device *cdev = &client->dev;
 	int i;
 	int ret;
-	int timeout = 0;
+	int timeout;
+	int count = 0;
 
 	if (atomic_read(&chip->power_on))
 		return;
 
 	init_completion(&chip->wait_pwr_ctrl);
+pwron:
+	timeout = 0;
+
 	gpio_set_value(chip->pdata->pwren_gpio, 1);
 	mdelay(10);
 
@@ -414,15 +418,14 @@ void anx7688_pwr_on(struct anx7688_chip *chip)
 	 *  this bug only shown firmware version under
          *  0032. it will fixed next firmware version.
 	 */
-	if (chip->pdata->fwver <= MI1_FWVER_RC2) {
+	if (chip->pdata->fwver <= MI1_FWVER_RC2 && chip->pdata->fwver != 0x00) {
 		OhioWriteReg(USBC_ADDR, USBC_ANALOG_CTRL_0, 0xA0);
 		OhioWriteReg(USBC_ADDR, USBC_ANALOG_CTRL_2, 0x09);
 	}
 
 	for (i = 0; i < BOOT_TIMEOUT ; i++) {
-
-		if ((chip->pdata->fwver == 0x00) ||
-			chip->pdata->fwver >= MI1_FWVER_RC3) {
+		if ((chip->pdata->fwver >= MI1_FWVER_RC3) ||
+			(chip->pdata->fwver == 0x00)) {
 			ret = OhioReadReg(USBC_ADDR, OCM_DEBUG_1);
 			if ((ret & 0x01) == 0x01) {
 				dev_info(cdev, "boot load done\n");
@@ -439,8 +442,17 @@ void anx7688_pwr_on(struct anx7688_chip *chip)
 		timeout++;
 	}
 
-	if (timeout >= (BOOT_TIMEOUT * 2))
-		anx7688_power_reset(chip);
+	if (timeout >= BOOT_TIMEOUT) {
+		if (count++ < 3) {
+			anx7688_power_reset(chip);
+			gpio_set_value(chip->pdata->pwren_gpio, 0);
+			mdelay(2);
+			gpio_set_value(chip->pdata->rstn_gpio, 0);
+			mdelay(100);
+			goto pwron;
+		}
+		dev_err(cdev, "boot load failed\n");
+	}
 
 	complete(&chip->wait_pwr_ctrl);
 	atomic_set(&chip->power_on, 1);
@@ -1766,12 +1778,12 @@ static int anx7688_check_firmware(struct anx7688_chip *chip)
 			dev_err(cdev, "cannot read fw ver skip update\n");
 			goto out1;
 		}
+		chip->pdata->fwver = ((rc & 0xFF00) >> 8) |
+					((rc & 0x00FF) << 8);
 
 		mdelay(5);
-	} while ((retry++ < 50) && (rc == 0x00));
-
-	chip->pdata->fwver = ((rc & 0xFF00) >> 8) |
-				((rc & 0x00FF) << 8);
+	} while ((retry++ < 100) && (rc == 0x00) &&
+			chip->pdata->fwver != MI1_NEW_FWVER);
 
 	rc = 0;
 

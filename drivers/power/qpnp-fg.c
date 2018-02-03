@@ -2574,44 +2574,6 @@ static int get_prop_capacity(struct fg_chip *chip)
 			FULL_SOC_RAW - 2) + 1;
 }
 
-#ifdef CONFIG_LGE_PM_FG_AGE
-int fg_age_detection(struct fg_chip *chip)
-{
-	int full_cap, design_cap;
-	int age;
-	static int pre_age;
-	if(chip->learning_data.learned_cc_uah == 0 ||
-			chip->nom_cap_uah == 0) {
-		/*not init learned*/
-		pr_info("battery age not init\n");
-		return 1;
-	}
-
-	full_cap = (int)chip->learning_data.learned_cc_uah / 1000;
-	design_cap = (int)chip->nom_cap_uah / 1000;
-	pr_debug("full cap =%d,design cap=%d\n",full_cap, design_cap);
-
-	age = (full_cap*100) / design_cap;
-	if (pre_age != age) {
-		pr_info("full cap =%d,design cap=%d, age=%d.\n",full_cap, design_cap,age);
-		pre_age = age;
-	}
-
-	if(age == 999){
-		return 0;
-	} else if (age >= 80) {
-		return 1;
-	} else if (age >= 50) {
-		return 2;
-	} else if (age >= 0){
-		return 3;
-	} else {
-		return 0;
-	}
-	return age;
-}
-#endif
-
 #define HIGH_BIAS	3
 #define MED_BIAS	BIT(1)
 #define LOW_BIAS	BIT(0)
@@ -2968,10 +2930,6 @@ static int update_sram_data(struct fg_chip *chip, int *resched_ms)
 	if(fg_lge_debug) {
 		fg_sram_update_period_ms = 1000;
 		fg_stay_awake(&chip->lge_debug_wakeup_source);
-	} else if (lge_get_boot_mode() !=LGE_BOOT_MODE_NORMAL
-		&& lge_get_boot_mode() !=LGE_BOOT_MODE_CHARGERLOGO) {
-		fg_sram_update_period_ms = 5000;
-		fg_relax(&chip->lge_debug_wakeup_source);
 	} else {
 		fg_relax(&chip->lge_debug_wakeup_source);
 		fg_sram_update_period_ms = 30000;
@@ -4844,11 +4802,7 @@ static int fg_restore_soc(struct fg_chip *chip)
 }
 
 #define NOM_CAP_REG			0x4F4
-#ifdef CONFIG_LGE_PM
-#define CAPACITY_DELTA_DECIPCT          210
-#else
 #define CAPACITY_DELTA_DECIPCT          500
-#endif
 static int load_battery_aging_data(struct fg_chip *chip)
 {
 	int rc = 0;
@@ -5082,9 +5036,6 @@ static enum power_supply_property fg_power_props[] = {
 #ifdef CONFIG_LGE_PM_CHARGERLOGO_WAIT_FOR_FG_INIT
 	POWER_SUPPLY_PROP_FIRST_SOC_EST_DONE,
 #endif
-#ifdef CONFIG_LGE_PM_FG_AGE
-	POWER_SUPPLY_PROP_BATTERY_CONDITION,
-#endif
 };
 
 static int fg_power_get_property(struct power_supply *psy,
@@ -5196,11 +5147,6 @@ static int fg_power_get_property(struct power_supply *psy,
         case POWER_SUPPLY_PROP_FIRST_SOC_EST_DONE:
                 val->intval = chip->first_soc_est_done;
                 break;
-#endif
-#ifdef CONFIG_LGE_PM_FG_AGE
-	case POWER_SUPPLY_PROP_BATTERY_CONDITION:
-		val->intval = fg_age_detection(chip);
-		break;
 #endif
 	default:
 		return -EINVAL;
@@ -5672,9 +5618,6 @@ static irqreturn_t fg_jeita_soft_hot_irq_handler(int irq, void *_chip)
 	bool batt_warm;
 	union power_supply_propval val = {0, };
 
-	if (!is_charger_available(chip))
-		return IRQ_HANDLED;
-
 	rc = fg_read(chip, &regval, INT_RT_STS(chip->batt_base), 1);
 	if (rc) {
 		pr_err("spmi read failed: addr=%03X, rc=%d\n",
@@ -5722,9 +5665,6 @@ static irqreturn_t fg_jeita_soft_cold_irq_handler(int irq, void *_chip)
 	u8 regval;
 	bool batt_cool;
 	union power_supply_propval val = {0, };
-
-	if (!is_charger_available(chip))
-		return IRQ_HANDLED;
 
 	rc = fg_read(chip, &regval, INT_RT_STS(chip->batt_base), 1);
 	if (rc) {
@@ -6151,6 +6091,7 @@ static int populate_system_data(struct fg_chip *chip)
 			chip->ocv_coeffs[8], chip->ocv_coeffs[9],
 			chip->ocv_coeffs[10], chip->ocv_coeffs[11]);
 	}
+
 	rc = fg_mem_read(chip, buffer, OCV_JUNCTION_REG, 2, 0, 0);
 	if (rc) {
 		pr_err("Failed to read ocv junctions: %d\n", rc);

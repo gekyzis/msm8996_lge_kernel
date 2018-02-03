@@ -275,3 +275,8 @@ config LGE_EXTERNAL_DISPLAY_BLOCK
 	---help---
 	Support EXTERNAL DISPLAY block
 
+config LGE_DISPLAY_DYN_DSI_MODE_SWITCH
+	bool "LG DYNAMIC DSI MODE SWITCH"
+	default n
+	---help---
+	Support Dynamic DSI mode switch

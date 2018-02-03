@@ -27,6 +27,11 @@
 #include <linux/lge_display_debug.h>
 #include "lge_mdss_display.h"
 
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+extern int mdss_fb_mode_switch(struct msm_fb_data_type *mfd, u32 mode);
+#endif
+
 void lge_mdss_fb_init(struct msm_fb_data_type *mfd)
 {
 	if(mfd->index != 0)
@@ -268,6 +273,10 @@ int lge_is_bl_update_blocked(int bl_lvl)
 	return false;
 }
 
+void lge_set_bl_update_blocked(bool enable)
+{
+	lge_block_bl_update = enable;
+}
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
 /* must call this function within mfd->bl_lock */
 int lge_is_bl_update_blocked_ex(int bl_lvl)
@@ -311,11 +320,10 @@ static ssize_t mdss_fb_set_bl_off_and_block(struct device *dev,
 	}
 
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
-	if (!lge_is_bl_ready_ex) {
+	if (!lge_is_bl_ready_ex)
 		pr_warn("%s invalid value : %d, %d || NULL check\n",
 			__func__, (int) count, lge_is_bl_ready);
 		return -EINVAL;
-	}
 #endif
 	fbi = dev_get_drvdata(dev);
 	mfd = fbi->par;
@@ -326,10 +334,8 @@ static ssize_t mdss_fb_set_bl_off_and_block(struct device *dev,
 			lge_block_bl_update);
 		mutex_lock(&mfd->bl_lock);
 		lge_block_bl_update = false;
-		lge_bl_lvl_unset = mfd->bl_level;
 		mdss_fb_set_backlight(mfd, 0);
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
-		lge_bl_lvl_unset_ex = mfd->bl_level_ex;
 		mdss_fb_set_backlight_ex(mfd, 0);
 #endif
 		lge_block_bl_update = true;
@@ -391,7 +397,6 @@ void mdss_fb_set_backlight_ex(struct msm_fb_data_type *mfd, u32 bkl_lvl)
 	u32 temp = bkl_lvl;
 	bool ad_bl_notify_needed = false;
 	bool bl_notify_needed = false;
-
 
 #if defined(CONFIG_LGE_SP_MIRRORING_CTRL_BL)
 	if(lge_is_bl_update_blocked_ex(bkl_lvl))
@@ -565,19 +570,41 @@ void mdss_fb_update_backlight_ex(struct msm_fb_data_type *mfd)
 /* TODO: check whether backlight off should not be called in U2 blank */
 void lge_aod_bl_ctrl_blank_blank(struct msm_fb_data_type *mfd)
 {
+#if defined (CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+	int current_bl;
+#endif
 	if (mfd->panel_info->aod_cur_mode ==
 				AOD_PANEL_MODE_U2_BLANK && mfd->index == 0) {
 		pr_info("[AOD] Don't off backlight when U2 Blank\n");
 		mfd->unset_bl_level = U32_MAX;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+#if defined (CONFIG_LGE_DISPLAY_BL_EXTENDED)
 		mfd->unset_bl_level_ex = U32_MAX;
 #endif
-	} else {
+	}
+#if defined (CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+	else if(mfd->index == 0) {
+		pr_info("%s: backlight backup: bl_level %d\n", __func__, mfd->bl_level);
+		current_bl = mfd->bl_level;
+		mfd->allow_bl_update = true;
+		mdss_fb_set_backlight(mfd, 0);
+		mfd->allow_bl_update = false;
+		mfd->unset_bl_level = current_bl;
+#if defined (CONFIG_LGE_DISPLAY_BL_EXTENDED)
+		pr_info("%s: backlight backup: bl_level_ex %d\n", __func__, mfd->bl_level_ex);
+		current_bl = mfd->bl_level_ex;
+		mfd->allow_bl_update_ex = true;
+		mdss_fb_set_backlight_ex(mfd, 0);
+		mfd->allow_bl_update_ex = false;
+		mfd->unset_bl_level_ex = current_bl;
+#endif
+	}
+#else
+	else {
 		mfd->allow_bl_update = true;
 		mdss_fb_set_backlight(mfd, 0);
 		mfd->allow_bl_update = false;
 		mfd->unset_bl_level = U32_MAX;
-#if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+#if defined (CONFIG_LGE_DISPLAY_BL_EXTENDED)
 		mfd->allow_bl_update_ex = true;
 		mdss_fb_set_backlight_ex(mfd, 0);
 		mfd->allow_bl_update_ex = false;
@@ -585,6 +612,7 @@ void lge_aod_bl_ctrl_blank_blank(struct msm_fb_data_type *mfd)
 #endif
 
 	}
+#endif
 }
 
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
@@ -932,6 +960,7 @@ static ssize_t mdss_fb_set_keep_aod(struct device *dev,
 	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
 	struct mdss_panel_data *pdata;
 	int old_value, new_value;
+	int rc;
 
 	pdata = dev_get_platdata(&mfd->pdev->dev);
 	if (!pdata) {
@@ -951,34 +980,46 @@ static ssize_t mdss_fb_set_keep_aod(struct device *dev,
 
 	/* Current mode is  AOD_PANEL_MODE_U2_UNBLANK and if set keep_aod by 0,
 	     We have to U2-> U3 command only */
-	if (pdata->panel_info.aod_cur_mode == AOD_PANEL_MODE_U2_UNBLANK && new_value == AOD_MOVE_TO_U3) {
-		int rc;
+#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+	if ((pdata->panel_info.aod_cur_mode == AOD_PANEL_MODE_U2_UNBLANK ||
+		 (pdata->panel_info.aod_cur_mode == AOD_PANEL_MODE_U3_UNBLANK &&
+		  pdata->panel_info.mipi.mode == DSI_CMD_MODE)) &&
+#else
+	if (pdata->panel_info.aod_cur_mode == AOD_PANEL_MODE_U2_UNBLANK &&
+#endif
+		new_value == AOD_MOVE_TO_U3) {
 		struct mdss_dsi_ctrl_pdata *ctrl;
 
 		ctrl = container_of(pdata, struct mdss_dsi_ctrl_pdata, panel_data);
 
+#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+		pr_info("[AOD] pdata->panel_info.aod_cur_mode : %d, pdata->panel_info.mipi.mode : %d\n",
+						pdata->panel_info.aod_cur_mode, pdata->panel_info.mipi.mode);
+		pdata->panel_info.mode_switch = CMD_TO_VIDEO;
+		rc = mdss_fb_mode_switch(mfd, CMD_TO_VIDEO);
+		if (rc)
+			pr_err("[AOD] Fail to change mode from command to video\n");
+#endif
 		mutex_lock(&mfd->aod_lock);
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
 		// this flag will reset 0 in full frame kickoff(__validate_roi_and_set function).
 		mfd->keep_aod_pending = true;
 		pr_info("keep_aod_pending set to true\n");
 #endif
+#if !defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
 		rc = oem_mdss_aod_cmd_send(mfd, AOD_CMD_DISABLE);
-		oem_mdss_aod_set_backlight_mode(mfd);
-		pdata->panel_info.aod_keep_u2 = AOD_NO_DECISION;
-		mutex_unlock(&mfd->aod_lock);
 		if (rc)
 			pr_err("[AOD] Fail to send U2->U3 command\n");
-	}
-#if defined(CONFIG_LGE_DISPLAY_MARQUEE_SUPPORTED)
-	else if (pdata->panel_info.aod_cur_mode == AOD_PANEL_MODE_U3_UNBLANK && new_value == AOD_MOVE_TO_U3) {
-		mutex_lock(&mfd->aod_lock);
-		mfd->panel_info->ext_off_temp = mfd->panel_info->ext_off;
+#endif
 		oem_mdss_aod_set_backlight_mode(mfd);
 		pdata->panel_info.aod_keep_u2 = AOD_NO_DECISION;
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+		mutex_lock(&mfd->bl_lock);
+		mdss_fb_set_bl_brightness_aod_sub(mfd, mfd->br_lvl_ex);
+		mutex_unlock(&mfd->bl_lock);
+#endif
 		mutex_unlock(&mfd->aod_lock);
 	}
-#endif
 	return len;
 }
 static ssize_t mdss_fb_get_keep_aod(struct device *dev,
@@ -1000,6 +1041,64 @@ static ssize_t mdss_fb_get_keep_aod(struct device *dev,
 
 	return ret;
 }
+
+#if IS_ENABLED(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+static ssize_t mdss_fb_lge_set_mode_switch(struct device *dev,
+		     struct device_attribute *attr, const char *buf, size_t len)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
+	struct mdss_panel_data *pdata;
+	int new_value;
+
+	pdata = dev_get_platdata(&mfd->pdev->dev);
+	if (!pdata) {
+		pr_err("no panel connected!\n");
+		return -EINVAL;
+	}
+
+	if (sscanf(buf, "%d", &new_value) != 1) {
+		pr_err("sccanf buf error!\n");
+		return -EINVAL;
+	}
+	pdata->panel_info.mode_switch = new_value;
+
+	pr_info("mode_switch : %d\n", new_value);
+
+	if (new_value == CMD_TO_VIDEO) { //case1. CMD TO VIDEO
+		pr_info("aod_mode = %d, mode_switch=%d\n",pdata->panel_info.aod_cur_mode,pdata->panel_info.mode_switch);
+		mdss_fb_mode_switch(mfd,new_value);
+	}
+	else if (new_value == VIDEO_TO_CMD) { //case2. VIDEO TO CMD
+		pr_info("aod_mode = %d, mode_switch=%d\n",pdata->panel_info.aod_cur_mode,pdata->panel_info.mode_switch);
+		mdss_fb_mode_switch(mfd,new_value);
+	}
+	else{
+		pr_info("unexpected mode switch");
+	}
+
+	return len;
+}
+static ssize_t mdss_fb_lge_get_mode_switch(struct device *dev,
+		          struct device_attribute *attr, char *buf)
+{
+	struct fb_info *fbi = dev_get_drvdata(dev);
+	struct msm_fb_data_type *mfd = (struct msm_fb_data_type *)fbi->par;
+	struct mdss_panel_info *pinfo;
+	int ret;
+
+	pinfo = mfd->panel_info;
+
+	if (!pinfo) {
+		pr_err("no panel connected!\n");
+		return -EINVAL;
+	}
+	ret = scnprintf(buf, PAGE_SIZE, "%d\n",
+			pinfo->mode_switch);
+
+	return ret;
+}
+#endif
 
 void lge_mdss_fb_aod_release(struct msm_fb_data_type *mfd)
 {
@@ -1048,6 +1147,9 @@ static ssize_t mdss_fb_toggle_u1(struct device *dev,
 		pr_info("%d -> %d\n", pinfo->ext_off_temp, ext_off);
 		pinfo->ext_off_temp = ext_off;
 		oem_mdss_aod_set_backlight_mode(mfd);
+		mutex_lock(&mfd->bl_lock);
+		mdss_fb_set_bl_brightness_aod_sub(mfd, mfd->br_lvl_ex);
+		mutex_unlock(&mfd->bl_lock);
 	}
 	mutex_unlock(&mfd->aod_lock);
 	return len;
@@ -1101,6 +1203,9 @@ static ssize_t mdss_fb_set_ext_off(struct device *dev,
 		pinfo->ext_off = ext_off;
 		pinfo->ext_off_temp = ext_off;
 		oem_mdss_aod_set_backlight_mode(mfd);
+		mutex_lock(&mfd->bl_lock);
+		mdss_fb_set_bl_brightness_aod_sub(mfd, mfd->br_lvl_ex);
+		mutex_unlock(&mfd->bl_lock);
 	}
 	mutex_unlock(&mfd->aod_lock);
 	return len;
@@ -1135,6 +1240,10 @@ static DEVICE_ATTR(toggle_u1, S_IWUSR|S_IRUGO, mdss_fb_get_toggle_u1,
 			mdss_fb_toggle_u1);
 static DEVICE_ATTR(ext_off, S_IWUSR|S_IRUGO, mdss_fb_get_ext_off,
 			mdss_fb_set_ext_off);
+#if defined (CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+static DEVICE_ATTR(mode_switch, S_IWUSR|S_IRUGO, mdss_fb_lge_get_mode_switch,
+			mdss_fb_lge_set_mode_switch);
+#endif
 #endif
 #endif
 
@@ -1156,6 +1265,9 @@ static struct attribute *lge_mdss_fb_attrs[] = {
 #if defined(CONFIG_LGE_DISPLAY_BL_EXTENDED)
 	&dev_attr_toggle_u1.attr,
 	&dev_attr_ext_off.attr,
+#if defined (CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
+	&dev_attr_mode_switch.attr,
+#endif
 #endif
 #endif
 	NULL,

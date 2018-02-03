@@ -78,7 +78,7 @@
 			/* Manufacturer Command Protection */
 			15 01 00 00 00 00 02 B0 AC
 			/* Init. Code Version */
-			39 01 00 00 00 00 03 D7 1A 11
+			39 01 00 00 00 00 04 D7 1A 14 01
 			/*Left Side GIP pad setting*/
 			39 01 00 00 00 00 0E E5 1A 0D 0C 0E 1A 1A 01 05 07 09 0B 1A 11
 			/*Right Side GIP pad setting*/
@@ -126,11 +126,11 @@
 			/* Power Control 4 */
 			39 01 00 00 00 00 08 C3 35 44 22 26 21 35 DD
 			/* Power Control 5 */
-			39 01 00 00 00 00 07 C5 A2 38 28 54 D4 12
+			39 01 00 00 00 00 07 C5 A2 38 28 54 D4 10
 			/* Power Sequence Option Configuration */
 			39 01 00 00 00 00 06 C9 05 5D 03 04 01
 			/* APO Control */
-			39 01 00 00 00 00 03 CA 9F 00
+			39 01 00 00 00 00 03 CA 9F 10
 			/* LFD Control */
 			39 01 00 00 00 00 06 CB F3 90 3D 3D CC
 			/* Tail TFT Setting */
@@ -138,15 +138,15 @@
 			/* U2 Control */
 			39 01 00 00 00 00 04 CD 86 40 07
 			/* Positive Gamma Curve for Red */
-			39 01 00 00 00 00 0E D0 00 12 1E 2C 39 40 4F 45 38 28 15 00 03
+			39 01 00 00 00 00 0E D0 00 12 1E 2C 39 40 4F 45 38 28 15 04 03
 			/* Negative Gamma Curve for Red */
 			39 01 00 00 00 00 0E D1 00 12 1E 2C 39 40 4F 45 38 28 15 00 03
 			/* Positive Gamma Curve for Green */
-			39 01 00 00 00 00 0E D2 00 12 1D 2B 38 3F 50 48 39 28 15 00 03
+			39 01 00 00 00 00 0E D2 00 12 1D 2B 38 3F 50 48 39 28 15 04 03
 			/* Negative Gamma Curve for Green */
 			39 01 00 00 00 00 0E D3 00 12 1D 2B 38 3F 50 48 39 28 15 00 03
 			/* Positive Gamma Curve for Blue */
-			39 01 00 00 00 00 0E D4 00 12 1E 2C 39 40 4F 45 38 28 15 00 03
+			39 01 00 00 00 00 0E D4 00 12 1E 2C 39 40 4F 45 38 28 15 04 03
 			/* Negative Gamma Curve for Blue */
 			39 01 00 00 00 00 0E D5 00 12 1E 2C 39 40 4F 45 38 28 15 00 03
 			/* Test1 */
@@ -545,7 +545,4 @@
 				};
 			};
 	};
-};
-&mdss_fb0 {
-	/delete-node/ qcom,cont-splash-memory;
 };

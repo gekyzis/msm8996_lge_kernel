@@ -72,7 +72,6 @@ enum lcd_panel_type {
 	LGE_SIC_LG4946_INCELL_CND_PANEL,
 	LGE_TD4302_INCELL_CND_PANEL,
 	LGD_SIC_LG49407_INCELL_CMD_PANEL,
-	LGD_SIC_LG49407_INCELL_VIDEO_PANEL,
 	UNKNOWN_PANEL
 };
 #endif
@@ -354,14 +353,6 @@ enum dynamic_switch_modes {
 	SWITCH_TO_VIDEO_MODE,
 	SWITCH_RESOLUTION,
 };
-
-#ifdef CONFIG_LGE_DISPLAY_BL_EXTENDED
-enum mode_switch_type {
-	CMD_TO_VIDEO= 0,
-	VIDEO_TO_CMD,
-	NO_DECISION,
-};
-#endif
 
 /**
  * struct mdss_panel_timing - structure for panel timing information
@@ -777,7 +768,6 @@ struct mdss_panel_info {
 #if defined(CONFIG_LGE_DISPLAY_BL_EXTENDED)
 	int ext_off;
 	int ext_off_temp;
-	int mode_switch;
 #endif
 #endif
 

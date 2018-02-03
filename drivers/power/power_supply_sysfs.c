@@ -379,7 +379,7 @@ static struct device_attribute power_supply_attrs[] = {
 #ifdef CONFIG_LGE_PM
 	POWER_SUPPLY_ATTR(fastchg),
 #endif
-#ifdef CONFIG_BATTERY_MAX17050
+#if defined(CONFIG_BATTERY_MAX17050) || defined(CONFIG_LGE_PM_FG_AGE)
 	POWER_SUPPLY_ATTR(battery_condition),
 	POWER_SUPPLY_ATTR(battery_age),
 #endif
@@ -401,6 +401,7 @@ static struct device_attribute power_supply_attrs[] = {
 	POWER_SUPPLY_ATTR(ctype_rp),
 #endif
 	POWER_SUPPLY_ATTR(allow_hvdcp3),
+	POWER_SUPPLY_ATTR(max_pulse_allowed),
 	POWER_SUPPLY_ATTR(soc_reporting_ready),
 	POWER_SUPPLY_ATTR(ignore_false_negative_isense),
 	POWER_SUPPLY_ATTR(enable_jeita_detection),

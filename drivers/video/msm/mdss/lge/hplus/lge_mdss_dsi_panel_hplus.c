@@ -21,6 +21,9 @@
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_READER_MODE)
 #include "../lge_reader_mode.h"
 #endif
+#if defined(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+extern int lge_set_validate_lcd_reg(void);
+#endif
 
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_OVERRIDE_MDSS_DSI_PANEL_RESET)
 static int mdss_dsi_request_gpios(struct mdss_dsi_ctrl_pdata *ctrl_pdata)
@@ -66,8 +69,6 @@ bklt_en_gpio_err:
 disp_en_gpio_err:
 	return rc;
 }
-extern void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
-		struct dsi_panel_cmds *pcmds, u32 flags);
 
 int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 {
@@ -101,13 +102,13 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 		return rc;
 	}
 
-	pr_err("%s: enable = %d\n", __func__, enable);
+	pr_debug("%s: enable = %d\n", __func__, enable);
 	pinfo = &(ctrl_pdata->panel_data.panel_info);
 
 	if (enable) {
 		rc = mdss_dsi_request_gpios(ctrl_pdata);
 		if (rc) {
-			pr_err("[Display] gpio request failed\n");
+			pr_err("gpio request failed\n");
 			return rc;
 		}
 		if (!pinfo->cont_splash_enabled) {
@@ -122,33 +123,14 @@ int mdss_dsi_panel_reset(struct mdss_panel_data *pdata, int enable)
 			}
 #if defined(CONFIG_LGE_DISPLAY_AOD_SUPPORTED)
 			/* Only panel reset when U0 -> U3 or U0 -> U2 Unblank*/
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-pr_err("<<<<<<<<<<< DSP : %d // Mode : %d \n",pinfo->dynamic_switch_pending ,pinfo->aod_cmd_mode);
-			if(!pinfo->dynamic_switch_pending &&
-				pinfo->aod_cmd_mode  != SWITCH_VIDEO_TO_CMD &&
-				pinfo->aod_cmd_mode  != SWITCH_CMD_TO_VIDEO &&
-				pinfo->aod_cmd_mode != ON_CMD &&
-				pinfo->aod_cmd_mode != ON_AND_AOD &&
-				pinfo->aod_cmd_mode != AOD_CMD_DISABLE &&
-				!pinfo->panel_dead) {
-#else
 			if (pinfo->aod_cmd_mode != ON_CMD &&
 				pinfo->aod_cmd_mode != ON_AND_AOD &&
-							!pinfo->panel_dead) {
-#endif
-				pr_info("[Display] reset skip..\n");
+							!pinfo->panel_dead)
 				return rc;
-			}
-#endif
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			if( pinfo->aod_cmd_mode  == AOD_CMD_DISABLE){
-				pr_err("[Display]During u2 -> u3, Send sleep-in command\n");
-				mdss_dsi_panel_cmds_send(ctrl_pdata, &ctrl_pdata->aod_cmds[AOD_PANEL_CMD_U2_TO_U0], CMD_REQ_COMMIT);
-			}
 #endif
 			/* Notify to Touch when panel reset */
 			if (touch_notifier_call_chain(NOTIFY_TOUCH_RESET, NULL))
-				pr_err("[Display] Failt to send notify to touch\n");
+				pr_err("Failt to send notify to touch\n");
 			for (i = 0; i < pdata->panel_info.rst_seq_len; ++i) {
 				gpio_set_value((ctrl_pdata->rst_gpio),
 						pdata->panel_info.rst_seq[i]);
@@ -157,7 +139,6 @@ pr_err("<<<<<<<<<<< DSP : %d // Mode : %d \n",pinfo->dynamic_switch_pending ,pin
 						pinfo->rst_seq[i] * 1000);
 			}
 
-#ifdef CONFIG_LGE_LCD_POWER_CTRL
 			if (pinfo->power_ctrl || pinfo->panel_dead) {
 				usleep_range(5000,5000);
 
@@ -172,7 +153,6 @@ pr_err("<<<<<<<<<<< DSP : %d // Mode : %d \n",pinfo->dynamic_switch_pending ,pin
 							__func__, __mdss_dsi_pm_name(DSI_PANEL_PM));
 				}
 			}
-#endif
 
 			if (gpio_is_valid(ctrl_pdata->bklt_en_gpio)) {
 				rc = gpio_direction_output(
@@ -226,6 +206,9 @@ exit:
 }
 #endif
 
+extern void mdss_dsi_panel_cmds_send(struct mdss_dsi_ctrl_pdata *ctrl,
+		struct dsi_panel_cmds *pcmds, u32 flags);
+
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_OVERRIDE_MDSS_DSI_PANEL_ON)
 int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 {
@@ -261,24 +244,10 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 		case AOD_CMD_ENABLE:
 			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_U3_TO_U2], CMD_REQ_COMMIT);
 			goto notify;
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-		case AOD_CMD_DISABLE_FROM_CMD_MODE:
-			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_U2_TO_U3], CMD_REQ_COMMIT);
-			goto notify;
-#endif
 		case AOD_CMD_DISABLE:
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			pr_info(" u2  -> u3 [Display] panel on with video mode \n");
-			on_cmds = &ctrl->c_to_v_on_cmds;
-			break;
-#else
 			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_U2_TO_U3], CMD_REQ_COMMIT);
 			goto notify;
-#endif
 		case ON_AND_AOD:
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			on_cmds = &ctrl->v_to_c_on_cmds;
-#endif
 #if IS_ENABLED(CONFIG_LGE_DISPLAY_READER_MODE)
 			lge_mdss_dsi_panel_send_on_cmds(ctrl, on_cmds, lge_get_reader_mode());
 #else
@@ -322,34 +291,9 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 			if (ctrl->ds_registered && pinfo->is_pluggable)
 				 mdss_dba_utils_video_on(pinfo->dba_data, pinfo);
 			goto notify;
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-		case SWITCH_VIDEO_TO_CMD:
-			pr_info("[Display] switch video to command mode \n");
-			on_cmds = &ctrl->v_to_c_on_cmds;
-			//mdss_dsi_panel_cmds_send(ctrl, &ctrl->v_to_c_on_cmds, CMD_REQ_COMMIT);
-			//goto notify;
-			break;
-		case SWITCH_CMD_TO_VIDEO:
-			pr_info("[Display] switch command to video mode \n");
-			on_cmds = &ctrl->c_to_v_on_cmds;
-			//mdss_dsi_panel_cmds_send(ctrl, &ctrl->c_to_v_on_cmds, CMD_REQ_COMMIT);
-			//goto notify;
-			break;
-#endif
 		case ON_CMD:
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			on_cmds = &ctrl->c_to_v_on_cmds;
-#endif
 			break;
 		case CMD_SKIP:
-#if defined(CONFIG_LGE_DISPLAY_MARQUEE_SUPPORTED)
-			if (pinfo->mq_mode)
-				oem_mdss_mq_cmd_unset(ctrl);
-#endif
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			/*fps to 60 */
-			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_FPS_60], CMD_REQ_COMMIT);
-#endif
 			goto notify;
 		default:
 			pr_err("[AOD] Unknown Mode : %d\n", pinfo->aod_cmd_mode);
@@ -383,6 +327,9 @@ int mdss_dsi_panel_on(struct mdss_panel_data *pdata)
 	if (ctrl->sharpness_on_cmds.cmds[2].payload[3] == 0x29)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->sharpness_on_cmds, CMD_REQ_COMMIT);
 #endif
+#if defined(CONFIG_LGE_DISPLAY_BL_EXTENDED)
+	lge_set_validate_lcd_reg();
+#endif
 	if (ctrl->display_on_cmds.cmd_cnt)
 		mdss_dsi_panel_cmds_send(ctrl, &ctrl->display_on_cmds, CMD_REQ_COMMIT);
 
@@ -396,12 +343,9 @@ notify:
 	{
 		int param;
 		param = pinfo->aod_cur_mode;
-		//in case of u3 unblank, notify to touch driver after video streaming enable.
-		if (pinfo->aod_cur_mode != AOD_PANEL_MODE_U3_UNBLANK){
-			if(touch_notifier_call_chain(LCD_EVENT_LCD_MODE,
-								(void *)&param))
-				pr_err("[AOD] Failt to send notify to touch\n");
-		}
+		if(touch_notifier_call_chain(LCD_EVENT_LCD_MODE,
+							(void *)&param))
+			pr_err("[AOD] Failt to send notify to touch\n");
 	}
 #endif
 
@@ -437,8 +381,13 @@ int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 	switch (pinfo->aod_cmd_mode) {
 		case AOD_CMD_ENABLE:
 #if defined(CONFIG_LGE_DISPLAY_MARQUEE_SUPPORTED)
-			if (pinfo->mq_mode)
-				oem_mdss_mq_cmd_set(ctrl);
+			if (pinfo->mq_mode) {
+				oem_mdss_mq_access_set(ctrl, 1);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->mq_column_row_cmds, CMD_REQ_COMMIT);
+				mdss_dsi_panel_cmds_send(ctrl, &ctrl->mq_control_cmds, CMD_REQ_COMMIT);
+				oem_mdss_mq_access_set(ctrl, 0);
+			}
+
 #endif
 			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_U3_TO_U2], CMD_REQ_COMMIT);
 			goto notify;
@@ -456,10 +405,6 @@ int mdss_dsi_panel_off(struct mdss_panel_data *pdata)
 		case OFF_CMD:
 			break;
 		case CMD_SKIP:
-#if defined(CONFIG_LGE_DISPLAY_DYN_DSI_MODE_SWITCH)
-			/* fps to 30 */
-			mdss_dsi_panel_cmds_send(ctrl, &ctrl->aod_cmds[AOD_PANEL_CMD_FPS_30], CMD_REQ_COMMIT);
-#endif
 			goto notify;
 		default:
 			pr_err("[AOD] Unknown Mode : %d\n", pinfo->aod_cmd_mode);

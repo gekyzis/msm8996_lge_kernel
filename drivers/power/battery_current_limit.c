@@ -59,10 +59,6 @@
 #define IS_IN_BIG_CLUSTER(cpu) ((cpu < 2) ? 0 : 1)
 #endif
 
-#ifdef CONFIG_LGE_PM
-static DEFINE_MUTEX(update_cpu_lock);
-#endif
-
 /*
  * Battery Current Limit Enable or Not
  */
@@ -310,9 +306,6 @@ static void power_supply_callback(struct power_supply *psy)
 	if (!bms_psy)
 		bms_psy = power_supply_get_by_name("bms");
 	if (bms_psy) {
-#ifdef CONFIG_LGE_PM
-		mutex_lock(&update_cpu_lock);
-#endif
 		battery_percentage = bms_psy->get_property(bms_psy,
 				POWER_SUPPLY_PROP_CAPACITY, &ret);
 		battery_percentage = ret.intval;
@@ -322,15 +315,8 @@ static void power_supply_callback(struct power_supply *psy)
 		prev_soc_state = bcl_soc_state;
 		bcl_soc_state = (battery_soc_val <= soc_low_threshold) ?
 					BCL_LOW_THRESHOLD : BCL_HIGH_THRESHOLD;
-#ifndef CONFIG_LGE_PM
 		if (bcl_soc_state == prev_soc_state)
 			return;
-#else
-		if (bcl_soc_state == prev_soc_state) {
-			mutex_unlock(&update_cpu_lock);
-			return;
-		}
-#endif
 		trace_bcl_sw_mitigation_event(
 			(bcl_soc_state == BCL_LOW_THRESHOLD)
 			? "trigger SoC mitigation"
@@ -341,9 +327,6 @@ static void power_supply_callback(struct power_supply *psy)
 			queue_work(gbcl->bcl_hotplug_wq, &bcl_hotplug_work);
 		}
 		update_cpu_freq();
-#ifdef CONFIG_LGE_PM
-		mutex_unlock(&update_cpu_lock);
-#endif
 	}
 }
 
@@ -461,30 +444,18 @@ static void bcl_iavail_work(struct work_struct *work)
 
 static void bcl_ibat_notify(enum bcl_threshold_state thresh_type)
 {
-#ifdef CONFIG_LGE_PM
-	mutex_lock(&update_cpu_lock);
-#endif
 	bcl_ibat_state = thresh_type;
 	if (bcl_hotplug_enabled)
 		queue_work(gbcl->bcl_hotplug_wq, &bcl_hotplug_work);
 	update_cpu_freq();
-#ifdef CONFIG_LGE_PM
-	mutex_unlock(&update_cpu_lock);
-#endif
 }
 
 static void bcl_vph_notify(enum bcl_threshold_state thresh_type)
 {
-#ifdef CONFIG_LGE_PM
-	mutex_lock(&update_cpu_lock);
-#endif
 	bcl_vph_state = thresh_type;
 	if (bcl_hotplug_enabled)
 		queue_work(gbcl->bcl_hotplug_wq, &bcl_hotplug_work);
 	update_cpu_freq();
-#ifdef CONFIG_LGE_PM
-	mutex_unlock(&update_cpu_lock);
-#endif
 }
 
 int bcl_voltage_notify(bool is_high_thresh)

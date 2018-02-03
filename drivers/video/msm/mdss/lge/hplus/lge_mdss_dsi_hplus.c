@@ -31,8 +31,7 @@ void mdss_dsi_ctrl_shutdown(struct platform_device *pdev)
 	}
 
 	if ((pinfo->panel_type == LGD_SIC_LG4945_INCELL_CMD_PANEL) ||
-	    (pinfo->panel_type == LGD_SIC_LG49407_INCELL_CMD_PANEL) ||
-	    (pinfo->panel_type == LGD_SIC_LG49407_INCELL_VIDEO_PANEL)) {
+		(pinfo->panel_type == LGD_SIC_LG49407_INCELL_CMD_PANEL)) {
 		/* TODO: check power sequence for hplus */
 		/* Shutdown sequence for LG4946
 		 * LABIBB HiZ - 5ms - Reset L - VPNL off - VDDIO off
